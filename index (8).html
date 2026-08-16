@@ -1,0 +1,1671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>QR-LINK :: Air-Gapped Optical Data Transfer</title>
+
+<script src="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js"></script>
+
+<style>
+  :root{
+    --bg:#0a0a0a;
+    --bg-panel:#0f0f0f;
+    --amber:#f59e0b;
+    --amber-dim:#92600a;
+    --green:#10b981;
+    --green-dim:#0a5c3f;
+    --red:#ef4444;
+    --grid:#1a1a1a;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    background:var(--bg);
+    color:var(--amber);
+    font-family:'Courier New', ui-monospace, Consolas, monospace;
+    margin:0;
+    padding:0;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  .bg-grid{
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+  .scanlines::before{
+    content:"";
+    position:fixed;
+    top:0;left:0;right:0;bottom:0;
+    background:repeating-linear-gradient(
+      0deg,
+      rgba(255,255,255,0.015) 0px,
+      rgba(255,255,255,0.015) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    pointer-events:none;
+    z-index:9999;
+  }
+  .panel{
+    background:var(--bg-panel);
+    border:1px solid #262626;
+    position:relative;
+  }
+  .panel-corners::before, .panel-corners::after{
+    content:"";
+    position:absolute;
+    width:10px;height:10px;
+    border-color:var(--amber);
+    border-style:solid;
+    border-width:0;
+  }
+  .panel-corners::before{ top:-1px;left:-1px;border-top-width:2px;border-left-width:2px; }
+  .panel-corners::after{ bottom:-1px;right:-1px;border-bottom-width:2px;border-right-width:2px; }
+  .panel-corners.green::before, .panel-corners.green::after{ border-color:var(--green); }
+
+  .glow-amber{ text-shadow:0 0 8px rgba(245,158,11,0.6); }
+  .glow-green{ text-shadow:0 0 10px rgba(16,185,129,0.7); }
+  .glow-red{ text-shadow:0 0 10px rgba(239,68,68,0.7); }
+
+  .hud-label{
+    font-size:10px;
+    letter-spacing:0.15em;
+    color:#8a8a8a;
+    text-transform:uppercase;
+  }
+  .hud-value{
+    font-size:20px;
+    font-weight:700;
+    letter-spacing:0.03em;
+  }
+  .btn{
+    background:transparent;
+    border:1px solid var(--amber);
+    color:var(--amber);
+    padding:10px 18px;
+    font-family:inherit;
+    font-size:12px;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+    cursor:pointer;
+    transition:all 0.15s ease;
+  }
+  .btn:hover{ background:rgba(245,158,11,0.12); box-shadow:0 0 14px rgba(245,158,11,0.35); }
+  .btn:disabled{ opacity:0.3; cursor:not-allowed; }
+  .btn-green{ border-color:var(--green); color:var(--green); }
+  .btn-green:hover{ background:rgba(16,185,129,0.12); box-shadow:0 0 14px rgba(16,185,129,0.35); }
+
+  .mode-toggle-btn{
+    flex:1;
+    padding:14px 8px;
+    text-align:center;
+    font-size:13px;
+    letter-spacing:0.15em;
+    text-transform:uppercase;
+    cursor:pointer;
+    border:1px solid #262626;
+    background:#0d0d0d;
+    color:#666;
+    transition:all 0.2s ease;
+  }
+  .mode-toggle-btn.active{
+    background:rgba(245,158,11,0.08);
+    border-color:var(--amber);
+    color:var(--amber);
+    box-shadow: inset 0 0 20px rgba(245,158,11,0.1);
+  }
+
+  .progress-track{
+    width:100%;
+    height:14px;
+    background:#141414;
+    border:1px solid #2a2a2a;
+    position:relative;
+    overflow:hidden;
+  }
+  .progress-fill{
+    height:100%;
+    background:linear-gradient(90deg, var(--green-dim), var(--green));
+    transition:width 0.15s linear;
+    box-shadow:0 0 10px rgba(16,185,129,0.6);
+  }
+
+  #qrStage{
+    background:#000;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    aspect-ratio:1/1;
+    max-width:480px;
+    margin:0 auto;
+    border:2px solid var(--amber-dim);
+  }
+  #qrStage img, #qrStage canvas{
+    image-rendering:pixelated;
+    width:100%!important;
+    height:100%!important;
+  }
+
+  .lock-badge{
+    padding:6px 14px;
+    font-weight:900;
+    font-size:14px;
+    letter-spacing:0.2em;
+    border:1px solid currentColor;
+  }
+
+  video#camPreview, canvas#camCanvasOverlay{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+  }
+  #camWrap{
+    position:relative;
+    background:#000;
+    aspect-ratio:1/1;
+    max-width:480px;
+    margin:0 auto;
+    border:2px solid var(--green-dim);
+    overflow:hidden;
+  }
+  #camCanvasOverlay{ position:absolute; top:0; left:0; pointer-events:none; }
+
+  .blink{ animation:blinkAnim 1s steps(1) infinite; }
+  @keyframes blinkAnim{ 50%{ opacity:0.25; } }
+
+  .chunk-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(4px,1fr));
+    gap:1px;
+    max-height:60px;
+    overflow:hidden;
+  }
+  .chunk-cell{ width:100%; aspect-ratio:1/1; background:#1c1c1c; }
+  .chunk-cell.got{ background:var(--green); }
+
+  input[type=range]{
+    -webkit-appearance:none;
+    width:100%;
+    height:4px;
+    background:#262626;
+    outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    width:14px;height:14px;
+    background:var(--amber);
+    cursor:pointer;
+    box-shadow:0 0 8px rgba(245,158,11,0.7);
+  }
+  input[type=file]::file-selector-button{
+    background:transparent;
+    border:1px solid var(--amber);
+    color:var(--amber);
+    padding:8px 14px;
+    font-family:inherit;
+    cursor:pointer;
+    margin-right:10px;
+  }
+
+  ::-webkit-scrollbar{ width:6px; height:6px; }
+  ::-webkit-scrollbar-thumb{ background:#333; }
+
+  .log-line{ font-size:11px; line-height:1.5; }
+  .log-drop{ color:var(--red); }
+  .log-ok{ color:#4a4a4a; }
+
+  video#playerOut{
+    width:100%;
+    max-height:70vh;
+    background:#000;
+    border:2px solid var(--green);
+  }
+
+  .lang-select-wrap{
+    position:relative;
+    border:1px solid var(--amber-dim);
+    background:#0d0d0d;
+  }
+  .lang-select{
+    appearance:none;
+    -webkit-appearance:none;
+    background:transparent;
+    color:var(--amber);
+    border:none;
+    font-family:inherit;
+    font-size:11px;
+    letter-spacing:0.05em;
+    padding:7px 24px 7px 10px;
+    cursor:pointer;
+    outline:none;
+  }
+  .lang-select option{
+    background:#0d0d0d;
+    color:var(--amber);
+  }
+  .lang-select-wrap::after{
+    content:"▾";
+    position:absolute;
+    right:8px;
+    top:50%;
+    transform:translateY(-50%);
+    color:var(--amber);
+    font-size:9px;
+    pointer-events:none;
+  }
+
+  .source-tab{
+    flex:1;
+    padding:10px 8px;
+    text-align:center;
+    font-size:11px;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    cursor:pointer;
+    border:1px solid #262626;
+    background:#0d0d0d;
+    color:#666;
+    transition:all 0.15s ease;
+  }
+  .source-tab.active{
+    background:rgba(245,158,11,0.08);
+    border-color:var(--amber);
+    color:var(--amber);
+  }
+  input[type=text].tech-input, input[type=url].tech-input{
+    width:100%;
+    background:#0d0d0d;
+    border:1px solid #262626;
+    color:var(--amber);
+    font-family:inherit;
+    font-size:13px;
+    padding:10px 12px;
+    outline:none;
+  }
+  input[type=text].tech-input:focus, input[type=url].tech-input:focus{
+    border-color:var(--amber);
+    box-shadow:0 0 8px rgba(245,158,11,0.25);
+  }
+  .type-badge{
+    display:inline-block;
+    padding:2px 8px;
+    font-size:10px;
+    letter-spacing:0.1em;
+    border:1px solid currentColor;
+  }
+  [dir="rtl"] .log-line, [dir="rtl"] .hud-value, [dir="rtl"] .hud-label{
+    text-align:right;
+  }
+</style>
+</head>
+<body class="bg-grid scanlines min-h-screen pb-16">
+
+<!-- ============ TOP HEADER / MODE TOGGLE ============ -->
+<header class="border-b border-neutral-800 sticky top-0 z-50 bg-black bg-opacity-95 backdrop-blur">
+  <div class="max-w-5xl mx-auto px-4 py-3">
+    <div class="flex items-center justify-between mb-3 gap-3">
+      <h1 class="text-lg md:text-xl font-bold glow-amber tracking-widest">◤ QR-LINK <span data-i18n="headerSubtitle" class="text-neutral-600 text-xs font-normal">// OPTICAL AIR-GAP TRANSFER</span></h1>
+      <div class="flex items-center gap-3">
+        <div id="clockDisplay" class="hud-label text-right hidden md:block">--:--:--</div>
+        <div class="lang-select-wrap">
+          <select id="langSelect" class="lang-select" onchange="applyLanguage(this.value)">
+            <option value="en">EN — English</option>
+            <option value="ru">RU — Русский</option>
+            <option value="de">DE — Deutsch</option>
+            <option value="fr">FR — Français</option>
+            <option value="es">ES — Español</option>
+            <option value="zh">中文 — 简体</option>
+            <option value="ja">JA — 日本語</option>
+            <option value="ko">KO — 한국어</option>
+            <option value="pt">PT — Português</option>
+            <option value="ar">AR — العربية</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="flex border border-neutral-800">
+      <div id="btnModeTx" class="mode-toggle-btn active" onclick="setMode('tx')"><span data-i18n="modeTx">▲ MODE: TRANSMITTER</span></div>
+      <div id="btnModeRx" class="mode-toggle-btn" onclick="setMode('rx')"><span data-i18n="modeRx">▼ MODE: RECEIVER</span></div>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-5xl mx-auto px-4 py-6">
+
+  <!-- ============================================================ -->
+  <!-- ======================= TRANSMITTER ========================= -->
+  <!-- ============================================================ -->
+  <section id="txPanel">
+
+    <!-- Source Input (tabbed: Local File / Video URL) -->
+    <div class="panel panel-corners p-4 mb-4">
+      <div class="hud-label mb-2" data-i18n="sourceIngestTitle">01 // SOURCE INGEST</div>
+
+      <div class="flex border border-neutral-800 mb-3">
+        <div id="tabSourceFile" class="source-tab active" onclick="setSourceMode('file')" data-i18n="tabLocalFile">LOCAL FILE</div>
+        <div id="tabSourceUrl" class="source-tab" onclick="setSourceMode('url')" data-i18n="tabVideoUrl">VIDEO URL</div>
+      </div>
+
+      <!-- Local file sub-panel -->
+      <div id="sourcePanelFile">
+        <input type="file" id="fileInput" accept="video/mp4,video/webm,video/quicktime,video/x-msvideo,audio/mpeg,audio/mp3,audio/*,video/*" class="text-xs text-neutral-400 w-full">
+        <div id="fileInfoLine" class="mt-3 text-xs text-neutral-500" data-i18n="noFileLoaded">NO FILE LOADED. Awaiting media selection (recommend &lt; 3MB for prototype stability).</div>
+        <div class="mt-3">
+          <div class="flex justify-between hud-label mb-1"><span data-i18n="encodingLabel">Encoding media...</span><span id="encodePct">0%</span></div>
+          <div class="progress-track"><div id="encodeProgFill" class="progress-fill" style="width:0%"></div></div>
+        </div>
+      </div>
+
+      <!-- Video URL sub-panel -->
+      <div id="sourcePanelUrl" class="hidden">
+        <input type="url" id="urlInput" class="tech-input" placeholder="https://youtube.com/watch?v=... , https://vk.com/video... , or direct .mp4/.mp3 link" oninput="handleUrlInput()">
+        <div id="urlInfoLine" class="mt-3 text-xs text-neutral-500" data-i18n="noUrlLoaded">NO URL LOADED. Paste a YouTube, VK Video, or direct media link above.</div>
+        <div id="urlTypeBadgeWrap" class="mt-2 hidden">
+          <span class="hud-label" data-i18n="detectedTypeLabel">DETECTED TYPE:</span>
+          <span id="urlTypeBadge" class="type-badge text-amber-400">--</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Config -->
+    <div class="panel panel-corners p-4 mb-4">
+      <div class="hud-label mb-3" data-i18n="txParamsTitle">02 // TRANSMISSION PARAMETERS</div>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <div class="flex justify-between hud-label mb-1"><span data-i18n="flashRateLabel">FLASH RATE (FPS)</span><span id="fpsSliderVal" class="text-amber-400">12</span></div>
+          <input type="range" id="fpsSlider" min="1" max="30" value="12">
+        </div>
+        <div>
+          <div class="flex justify-between hud-label mb-1"><span data-i18n="chunkPayloadLabel">CHUNK PAYLOAD (BYTES)</span><span id="chunkSliderVal" class="text-amber-400">900</span></div>
+          <input type="range" id="chunkSlider" min="300" max="1800" step="50" value="900">
+        </div>
+      </div>
+      <div class="mt-4 flex gap-3 flex-wrap">
+        <button id="btnStartTx" class="btn" disabled onclick="startTransmission()"><span data-i18n="btnStartBroadcast">▶ START BROADCAST</span></button>
+        <button id="btnStopTx" class="btn" disabled onclick="stopTransmission()"><span data-i18n="btnStop">■ STOP</span></button>
+        <button id="btnLoopTx" class="btn" onclick="toggleLoop()"><span data-i18n="btnLoop">↻ LOOP:</span> <span id="loopState" data-i18n="loopOff">OFF</span></button>
+      </div>
+    </div>
+
+    <!-- QR Stage -->
+    <div class="panel panel-corners p-4 mb-4">
+      <div class="hud-label mb-3 text-center" data-i18n="broadcastStreamTitle">03 // OPTICAL BROADCAST STREAM</div>
+      <div id="qrStage">
+        <div id="qrIdleMsg" class="text-neutral-700 text-xs text-center px-6" data-i18n="qrIdleMsg">// AWAITING TRANSMISSION START //<br>Point receiver camera at this square once broadcast begins.</div>
+      </div>
+    </div>
+
+    <!-- HUD -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="panel panel-corners p-3">
+        <div class="hud-label" data-i18n="hudFilenameLabel">Filename</div>
+        <div id="hudFilename" class="hud-value text-sm truncate glow-amber">--</div>
+      </div>
+      <div class="panel panel-corners p-3">
+        <div class="hud-label" data-i18n="hudTotalSizeLabel">Total Size</div>
+        <div id="hudTotalSize" class="hud-value text-sm glow-amber">--</div>
+      </div>
+      <div class="panel panel-corners p-3">
+        <div class="hud-label" data-i18n="hudTotalChunksLabel">Total Chunks</div>
+        <div id="hudTotalChunks" class="hud-value text-sm glow-amber">--</div>
+      </div>
+      <div class="panel panel-corners p-3">
+        <div class="hud-label" data-i18n="hudActiveChunkLabel">Active Chunk Idx</div>
+        <div id="hudActiveChunk" class="hud-value text-sm glow-amber">--</div>
+      </div>
+      <div class="panel panel-corners p-3">
+        <div class="hud-label" data-i18n="hudTxFpsLabel">TX FPS (actual)</div>
+        <div id="hudTxFps" class="hud-value text-sm glow-amber">0.0</div>
+      </div>
+      <div class="panel panel-corners p-3">
+        <div class="hud-label" data-i18n="hudSessionIdLabel">Session ID</div>
+        <div id="hudSessionId" class="hud-value text-sm glow-amber truncate">--</div>
+      </div>
+      <div class="panel panel-corners p-3">
+        <div class="hud-label" data-i18n="hudCyclesLabel">Cycles Sent</div>
+        <div id="hudCycles" class="hud-value text-sm glow-amber">0</div>
+      </div>
+      <div class="panel panel-corners p-3">
+        <div class="hud-label" data-i18n="hudStatusLabel">Status</div>
+        <div id="hudTxStatus" class="hud-value text-sm text-neutral-500" data-i18n="statusIdle">IDLE</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- ======================== RECEIVER ============================ -->
+  <!-- ============================================================ -->
+  <section id="rxPanel" class="hidden">
+
+    <div class="panel panel-corners green p-4 mb-4">
+      <div class="hud-label mb-3" data-i18n="cameraUplinkTitle">01 // CAMERA UPLINK</div>
+      <div class="flex gap-3 mb-3 flex-wrap">
+        <button id="btnStartCam" class="btn btn-green" onclick="startCamera()"><span data-i18n="btnActivateCam">◉ ACTIVATE CAMERA</span></button>
+        <button id="btnStopCam" class="btn btn-green" disabled onclick="stopCamera()"><span data-i18n="btnDeactivate">■ DEACTIVATE</span></button>
+        <button id="btnResetRx" class="btn" onclick="resetReceiver()"><span data-i18n="btnResetBuffer">↺ RESET BUFFER</span></button>
+      </div>
+      <div id="camWrap">
+        <video id="camPreview" autoplay playsinline muted></video>
+        <canvas id="camCanvasOverlay"></canvas>
+        <div id="camIdleMsg" class="absolute inset-0 flex items-center justify-center text-neutral-700 text-xs text-center px-6" data-i18n="camIdleMsg">// CAMERA INACTIVE //<br>Activate camera and aim at transmitter QR stream.</div>
+      </div>
+      <canvas id="hiddenDecodeCanvas" class="hidden"></canvas>
+    </div>
+
+    <!-- Cyberpunk HUD -->
+    <div class="panel panel-corners green p-4 mb-4">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div class="hud-label" data-i18n="acquisitionTelemetryTitle">02 // ACQUISITION TELEMETRY</div>
+        <div id="lockBadge" class="lock-badge text-neutral-600"><span data-i18n="statusSearching">◇ SEARCHING</span></div>
+      </div>
+
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <div class="panel p-3">
+          <div class="hud-label" data-i18n="hudCaptureFpsLabel">Capture FPS</div>
+          <div id="hudCaptureFps" class="hud-value text-green-400">0.0</div>
+        </div>
+        <div class="panel p-3">
+          <div class="hud-label" data-i18n="hudDecodeFpsLabel">Decode FPS</div>
+          <div id="hudDecodeFps" class="hud-value text-green-400">0.0</div>
+        </div>
+        <div class="panel p-3">
+          <div class="hud-label" data-i18n="hudDroppedLabel">Dropped</div>
+          <div id="hudDropped" class="hud-value text-red-400">0</div>
+        </div>
+        <div class="panel p-3">
+          <div class="hud-label" data-i18n="hudGoodputLabel">Goodput</div>
+          <div id="hudGoodput" class="hud-value text-green-400">0.0 <span class="text-xs">KB/s</span></div>
+        </div>
+        <div class="panel p-3">
+          <div class="hud-label" data-i18n="hudElapsedLabel">Elapsed</div>
+          <div id="hudElapsed" class="hud-value text-green-400">00:00</div>
+        </div>
+        <div class="panel p-3">
+          <div class="hud-label" data-i18n="hudChunksLabel">Chunks</div>
+          <div id="hudChunksRatio" class="hud-value text-green-400">0/0</div>
+        </div>
+        <div class="panel p-3">
+          <div class="hud-label" data-i18n="hudSessionLabel">Session</div>
+          <div id="hudRxSession" class="hud-value text-sm text-green-400 truncate">--</div>
+        </div>
+        <div class="panel p-3">
+          <div class="hud-label" data-i18n="hudChecksumFailLabel">Checksum Fails</div>
+          <div id="hudChecksumFail" class="hud-value text-red-400">0</div>
+        </div>
+      </div>
+
+      <div class="mb-2">
+        <div class="flex justify-between hud-label mb-1"><span data-i18n="progressLabel">PROGRESS</span><span id="progressPct" class="text-green-400">0%</span></div>
+        <div class="progress-track"><div id="progressFill" class="progress-fill" style="width:0%"></div></div>
+      </div>
+
+      <div class="chunk-grid mt-3" id="chunkGrid"></div>
+
+      <div class="mt-4">
+        <div class="hud-label mb-1" data-i18n="liveLogLabel">Live Log</div>
+        <div id="logPane" class="h-24 overflow-y-auto border border-neutral-800 p-2 bg-black"></div>
+      </div>
+    </div>
+
+    <!-- File Reconstruction Player Output -->
+    <div id="playerPanel" class="panel panel-corners green p-4 hidden">
+      <div class="hud-label mb-3 glow-green" data-i18n="reconstructionCompleteTitle">✔ RECONSTRUCTION COMPLETE — PLAYBACK</div>
+      <video id="playerOut" controls autoplay></video>
+      <div class="flex gap-3 mt-3 flex-wrap">
+        <a id="downloadLink" class="btn btn-green" download="received_video.webm"><span data-i18n="btnDownloadFile">⬇ DOWNLOAD FILE</span></a>
+        <button class="btn" onclick="resetReceiver()"><span data-i18n="btnScanNew">↺ SCAN NEW TRANSMISSION</span></button>
+      </div>
+    </div>
+
+    <!-- URL / Streaming Link Output -->
+    <div id="urlPlayerPanel" class="panel panel-corners green p-4 hidden">
+      <div class="hud-label mb-3 glow-green" data-i18n="linkReceivedTitle">✔ LINK RECEIVED</div>
+      <div id="urlEmbedWrap" class="mb-3"></div>
+      <div id="urlDirectLine" class="text-xs text-neutral-400 break-all mb-3"></div>
+      <div class="flex gap-3 flex-wrap">
+        <a id="urlOpenLink" class="btn btn-green" target="_blank" rel="noopener noreferrer"><span data-i18n="btnOpenLink">↗ OPEN LINK</span></a>
+        <button class="btn" onclick="resetReceiver()"><span data-i18n="btnScanNew">↺ SCAN NEW TRANSMISSION</span></button>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<footer class="fixed bottom-0 left-0 right-0 bg-black border-t border-neutral-900 text-center text-xs text-neutral-700 py-2" data-i18n="footerText">
+  100% OFFLINE // NO NETWORK REQUIRED // OPTICAL DATA TRANSFER PROTOCOL v1.0
+</footer>
+
+<script>
+/* =====================================================================
+   GLOBAL STATE
+===================================================================== */
+let currentMode = 'tx';
+
+/* ---------- Transmitter state ---------- */
+let txChunks = [];          // array of base64 payload strings (FILE mode) or URL fragments (URL mode)
+let txSessionId = null;
+let txFileName = '';
+let txFileSize = 0;
+let txMimeType = 'video/mp4';
+let txTotalChunks = 0;
+let txActiveIndex = 0;
+let txRunning = false;
+let txLoop = false;
+let txCyclesSent = 0;
+let txFpsTarget = 12;
+let txChunkBytes = 900;
+let txLastFrameTime = 0;
+let txFrameTimestamps = [];
+let txAnimHandle = null;
+let qrCodeInstance = null;
+let txSourceMode = 'file';   // 'file' | 'url'
+let txPayloadType = 'FILE';  // 'FILE' | 'URL'
+let txUrlValue = '';
+
+/* ---------- Receiver state ---------- */
+let rxStream = null;
+let rxScanning = false;
+let rxSessionId = null;
+let rxTotalChunks = 0;
+let rxChunksMap = new Map();     // index -> string (decoded chunk payload)
+let rxMimeType = 'video/mp4';
+let rxFileName = 'received_video';
+let rxPayloadType = 'FILE';      // 'FILE' | 'URL' — detected from first valid frame of a session
+let rxDroppedCount = 0;
+let rxChecksumFailCount = 0;
+let rxBytesReceived = 0;
+let rxStartTime = null;
+let rxCaptureFrameTimestamps = [];
+let rxDecodeFrameTimestamps = [];
+let rxLastLockTime = 0;
+let rxAnimHandle = null;
+let rxLastSeenIndices = new Set();
+let rxGoodputSamples = [];
+let rxLastGoodputCheck = { time: 0, bytes: 0 };
+
+/* ---------- i18n state ---------- */
+let currentLang = 'en';
+
+/* =====================================================================
+   UTILITIES
+===================================================================== */
+function $(id){ return document.getElementById(id); }
+
+function fmtBytes(n){
+  if(n < 1024) return n + ' B';
+  if(n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+  return (n/(1024*1024)).toFixed(2) + ' MB';
+}
+
+function fmtElapsed(ms){
+  const s = Math.floor(ms/1000);
+  const mm = String(Math.floor(s/60)).padStart(2,'0');
+  const ss = String(s%60).padStart(2,'0');
+  return mm+':'+ss;
+}
+
+function genSessionId(){
+  return Math.random().toString(36).substring(2,6).toUpperCase() + '-' + Date.now().toString(36).toUpperCase().slice(-4);
+}
+
+/* Simple, fast additive+rotational checksum (not cryptographic — purpose
+   is to instantly reject corrupted/garbled camera-decoded frames, not
+   to provide security). Produces a compact base36 string appended to
+   the header so we don't blow up QR payload size. */
+function checksumStr(str){
+  let h1 = 0x811c9dc5;
+  for(let i=0;i<str.length;i++){
+    h1 ^= str.charCodeAt(i);
+    h1 = Math.imul(h1, 0x01000193);
+  }
+  // unsigned, base36, fixed-ish short length
+  return (h1 >>> 0).toString(36);
+}
+
+function updateClock(){
+  const d = new Date();
+  $('clockDisplay').textContent = d.toTimeString().split(' ')[0];
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+/* =====================================================================
+   INTERNATIONALIZATION (i18n)
+   Every translatable string lives here, keyed by data-i18n attribute
+   value. applyLanguage() walks the DOM once and swaps textContent —
+   instant, no reload, no framework needed.
+===================================================================== */
+const I18N = {
+en:{
+  headerSubtitle:'// OPTICAL AIR-GAP TRANSFER', modeTx:'▲ MODE: TRANSMITTER', modeRx:'▼ MODE: RECEIVER',
+  sourceIngestTitle:'01 // SOURCE INGEST', tabLocalFile:'LOCAL FILE', tabVideoUrl:'VIDEO URL',
+  noFileLoaded:'NO FILE LOADED. Awaiting media selection (recommend &lt; 3MB for prototype stability).',
+  encodingLabel:'Encoding media...', noUrlLoaded:'NO URL LOADED. Paste a YouTube, VK Video, or direct media link above.',
+  detectedTypeLabel:'DETECTED TYPE:', txParamsTitle:'02 // TRANSMISSION PARAMETERS', flashRateLabel:'FLASH RATE (FPS)',
+  chunkPayloadLabel:'CHUNK PAYLOAD (BYTES)', btnStartBroadcast:'▶ START BROADCAST', btnStop:'■ STOP', btnLoop:'↻ LOOP:',
+  loopOff:'OFF', loopOn:'ON', broadcastStreamTitle:'03 // OPTICAL BROADCAST STREAM',
+  qrIdleMsg:'// AWAITING TRANSMISSION START //<br>Point receiver camera at this square once broadcast begins.',
+  hudFilenameLabel:'Filename', hudTotalSizeLabel:'Total Size', hudTotalChunksLabel:'Total Chunks',
+  hudActiveChunkLabel:'Active Chunk Idx', hudTxFpsLabel:'TX FPS (actual)', hudSessionIdLabel:'Session ID',
+  hudCyclesLabel:'Cycles Sent', hudStatusLabel:'Status', statusIdle:'IDLE', statusReady:'READY',
+  statusBroadcasting:'BROADCASTING', statusStopped:'STOPPED', statusComplete:'COMPLETE (1 CYCLE)',
+  statusErrorPayload:'ERROR: PAYLOAD TOO LARGE', cameraUplinkTitle:'01 // CAMERA UPLINK', btnActivateCam:'◉ ACTIVATE CAMERA',
+  btnDeactivate:'■ DEACTIVATE', btnResetBuffer:'↺ RESET BUFFER',
+  camIdleMsg:'// CAMERA INACTIVE //<br>Activate camera and aim at transmitter QR stream.',
+  acquisitionTelemetryTitle:'02 // ACQUISITION TELEMETRY', statusSearching:'◇ SEARCHING', statusLock:'● LOCK',
+  hudCaptureFpsLabel:'Capture FPS', hudDecodeFpsLabel:'Decode FPS', hudDroppedLabel:'Dropped', hudGoodputLabel:'Goodput',
+  hudElapsedLabel:'Elapsed', hudChunksLabel:'Chunks', hudSessionLabel:'Session', hudChecksumFailLabel:'Checksum Fails',
+  progressLabel:'PROGRESS', liveLogLabel:'Live Log', reconstructionCompleteTitle:'✔ RECONSTRUCTION COMPLETE — PLAYBACK',
+  btnDownloadFile:'⬇ DOWNLOAD FILE', btnScanNew:'↺ SCAN NEW TRANSMISSION', linkReceivedTitle:'✔ LINK RECEIVED',
+  btnOpenLink:'↗ OPEN LINK', footerText:'100% OFFLINE // NO NETWORK REQUIRED // OPTICAL DATA TRANSFER PROTOCOL v1.0'
+},
+ru:{
+  headerSubtitle:'// ОПТИЧЕСКАЯ ПЕРЕДАЧА БЕЗ СЕТИ', modeTx:'▲ РЕЖИМ: ПЕРЕДАТЧИК', modeRx:'▼ РЕЖИМ: ПРИЁМНИК',
+  sourceIngestTitle:'01 // ИСТОЧНИК ДАННЫХ', tabLocalFile:'ЛОКАЛЬНЫЙ ФАЙЛ', tabVideoUrl:'ССЫЛКА НА ВИДЕО',
+  noFileLoaded:'ФАЙЛ НЕ ЗАГРУЖЕН. Выберите медиафайл (рекомендуется &lt; 3МБ для прототипа).',
+  encodingLabel:'Кодирование медиа...', noUrlLoaded:'ССЫЛКА НЕ ЗАДАНА. Вставьте ссылку YouTube, VK Video или прямую ссылку на файл.',
+  detectedTypeLabel:'ОПРЕДЕЛЁННЫЙ ТИП:', txParamsTitle:'02 // ПАРАМЕТРЫ ПЕРЕДАЧИ', flashRateLabel:'ЧАСТОТА МЕРЦАНИЯ (FPS)',
+  chunkPayloadLabel:'РАЗМЕР ФРАГМЕНТА (БАЙТ)', btnStartBroadcast:'▶ НАЧАТЬ ТРАНСЛЯЦИЮ', btnStop:'■ СТОП', btnLoop:'↻ ЦИКЛ:',
+  loopOff:'ВЫКЛ', loopOn:'ВКЛ', broadcastStreamTitle:'03 // ОПТИЧЕСКИЙ ПОТОК ТРАНСЛЯЦИИ',
+  qrIdleMsg:'// ОЖИДАНИЕ НАЧАЛА ПЕРЕДАЧИ //<br>Наведите камеру приёмника на этот квадрат после начала трансляции.',
+  hudFilenameLabel:'Имя файла', hudTotalSizeLabel:'Общий размер', hudTotalChunksLabel:'Всего фрагментов',
+  hudActiveChunkLabel:'Текущий фрагмент', hudTxFpsLabel:'FPS передачи (факт.)', hudSessionIdLabel:'ID сессии',
+  hudCyclesLabel:'Циклов отправлено', hudStatusLabel:'Статус', statusIdle:'ОЖИДАНИЕ', statusReady:'ГОТОВО',
+  statusBroadcasting:'ТРАНСЛЯЦИЯ', statusStopped:'ОСТАНОВЛЕНО', statusComplete:'ЗАВЕРШЕНО (1 ЦИКЛ)',
+  statusErrorPayload:'ОШИБКА: СЛИШКОМ БОЛЬШОЙ ФРАГМЕНТ', cameraUplinkTitle:'01 // КАМЕРА', btnActivateCam:'◉ ВКЛЮЧИТЬ КАМЕРУ',
+  btnDeactivate:'■ ВЫКЛЮЧИТЬ', btnResetBuffer:'↺ СБРОСИТЬ БУФЕР',
+  camIdleMsg:'// КАМЕРА ОТКЛЮЧЕНА //<br>Включите камеру и наведите на QR-поток передатчика.',
+  acquisitionTelemetryTitle:'02 // ТЕЛЕМЕТРИЯ ПРИЁМА', statusSearching:'◇ ПОИСК', statusLock:'● ЗАХВАТ',
+  hudCaptureFpsLabel:'FPS захвата', hudDecodeFpsLabel:'FPS декодирования', hudDroppedLabel:'Потеряно', hudGoodputLabel:'Скорость',
+  hudElapsedLabel:'Прошло времени', hudChunksLabel:'Фрагменты', hudSessionLabel:'Сессия', hudChecksumFailLabel:'Ошибок контр. суммы',
+  progressLabel:'ПРОГРЕСС', liveLogLabel:'Журнал событий', reconstructionCompleteTitle:'✔ СБОРКА ЗАВЕРШЕНА — ВОСПРОИЗВЕДЕНИЕ',
+  btnDownloadFile:'⬇ СКАЧАТЬ ФАЙЛ', btnScanNew:'↺ СКАНИРОВАТЬ НОВУЮ ПЕРЕДАЧУ', linkReceivedTitle:'✔ ССЫЛКА ПОЛУЧЕНА',
+  btnOpenLink:'↗ ОТКРЫТЬ ССЫЛКУ', footerText:'100% ОФЛАЙН // СЕТЬ НЕ ТРЕБУЕТСЯ // ПРОТОКОЛ ОПТИЧЕСКОЙ ПЕРЕДАЧИ v1.0'
+},
+de:{
+  headerSubtitle:'// OPTISCHE AIR-GAP-ÜBERTRAGUNG', modeTx:'▲ MODUS: SENDER', modeRx:'▼ MODUS: EMPFÄNGER',
+  sourceIngestTitle:'01 // QUELLDATEN', tabLocalFile:'LOKALE DATEI', tabVideoUrl:'VIDEO-URL',
+  noFileLoaded:'KEINE DATEI GELADEN. Medienauswahl ausstehend (empfohlen &lt; 3MB für Prototyp).',
+  encodingLabel:'Medien werden kodiert...', noUrlLoaded:'KEINE URL GELADEN. Fügen Sie einen YouTube-, VK Video- oder Direktlink ein.',
+  detectedTypeLabel:'ERKANNTER TYP:', txParamsTitle:'02 // ÜBERTRAGUNGSPARAMETER', flashRateLabel:'BLINKRATE (FPS)',
+  chunkPayloadLabel:'PAKETGRÖSSE (BYTES)', btnStartBroadcast:'▶ ÜBERTRAGUNG STARTEN', btnStop:'■ STOPP', btnLoop:'↻ SCHLEIFE:',
+  loopOff:'AUS', loopOn:'AN', broadcastStreamTitle:'03 // OPTISCHER ÜBERTRAGUNGSSTREAM',
+  qrIdleMsg:'// WARTE AUF ÜBERTRAGUNGSSTART //<br>Empfängerkamera nach Start auf dieses Quadrat richten.',
+  hudFilenameLabel:'Dateiname', hudTotalSizeLabel:'Gesamtgröße', hudTotalChunksLabel:'Pakete gesamt',
+  hudActiveChunkLabel:'Aktives Paket', hudTxFpsLabel:'TX FPS (aktuell)', hudSessionIdLabel:'Sitzungs-ID',
+  hudCyclesLabel:'Zyklen gesendet', hudStatusLabel:'Status', statusIdle:'BEREIT', statusReady:'FERTIG',
+  statusBroadcasting:'SENDUNG LÄUFT', statusStopped:'GESTOPPT', statusComplete:'ABGESCHLOSSEN (1 ZYKLUS)',
+  statusErrorPayload:'FEHLER: PAKET ZU GROSS', cameraUplinkTitle:'01 // KAMERA-UPLINK', btnActivateCam:'◉ KAMERA AKTIVIEREN',
+  btnDeactivate:'■ DEAKTIVIEREN', btnResetBuffer:'↺ PUFFER ZURÜCKSETZEN',
+  camIdleMsg:'// KAMERA INAKTIV //<br>Kamera aktivieren und auf den QR-Stream des Senders richten.',
+  acquisitionTelemetryTitle:'02 // EMPFANGSTELEMETRIE', statusSearching:'◇ SUCHE', statusLock:'● VERRIEGELT',
+  hudCaptureFpsLabel:'Erfassungs-FPS', hudDecodeFpsLabel:'Dekodier-FPS', hudDroppedLabel:'Verloren', hudGoodputLabel:'Durchsatz',
+  hudElapsedLabel:'Verstrichen', hudChunksLabel:'Pakete', hudSessionLabel:'Sitzung', hudChecksumFailLabel:'Prüfsummenfehler',
+  progressLabel:'FORTSCHRITT', liveLogLabel:'Live-Protokoll', reconstructionCompleteTitle:'✔ REKONSTRUKTION ABGESCHLOSSEN — WIEDERGABE',
+  btnDownloadFile:'⬇ DATEI HERUNTERLADEN', btnScanNew:'↺ NEUE ÜBERTRAGUNG SCANNEN', linkReceivedTitle:'✔ LINK EMPFANGEN',
+  btnOpenLink:'↗ LINK ÖFFNEN', footerText:'100% OFFLINE // KEIN NETZWERK ERFORDERLICH // OPTISCHES DATENÜBERTRAGUNGSPROTOKOLL v1.0'
+},
+fr:{
+  headerSubtitle:'// TRANSFERT OPTIQUE AIR-GAP', modeTx:'▲ MODE : ÉMETTEUR', modeRx:'▼ MODE : RÉCEPTEUR',
+  sourceIngestTitle:'01 // SOURCE DES DONNÉES', tabLocalFile:'FICHIER LOCAL', tabVideoUrl:'URL VIDÉO',
+  noFileLoaded:'AUCUN FICHIER CHARGÉ. Sélection du média en attente (&lt; 3 Mo recommandé pour le prototype).',
+  encodingLabel:'Encodage du média...', noUrlLoaded:'AUCUNE URL. Collez un lien YouTube, VK Video ou un lien direct.',
+  detectedTypeLabel:'TYPE DÉTECTÉ :', txParamsTitle:'02 // PARAMÈTRES DE TRANSMISSION', flashRateLabel:'FRÉQUENCE (FPS)',
+  chunkPayloadLabel:'TAILLE DE FRAGMENT (OCTETS)', btnStartBroadcast:'▶ DÉMARRER LA DIFFUSION', btnStop:'■ ARRÊTER', btnLoop:'↻ BOUCLE :',
+  loopOff:'NON', loopOn:'OUI', broadcastStreamTitle:'03 // FLUX DE DIFFUSION OPTIQUE',
+  qrIdleMsg:'// EN ATTENTE DU DÉBUT DE TRANSMISSION //<br>Pointez la caméra du récepteur vers ce carré une fois la diffusion lancée.',
+  hudFilenameLabel:'Nom du fichier', hudTotalSizeLabel:'Taille totale', hudTotalChunksLabel:'Fragments totaux',
+  hudActiveChunkLabel:'Fragment actif', hudTxFpsLabel:'FPS TX (réel)', hudSessionIdLabel:'ID de session',
+  hudCyclesLabel:'Cycles envoyés', hudStatusLabel:'Statut', statusIdle:'INACTIF', statusReady:'PRÊT',
+  statusBroadcasting:'DIFFUSION EN COURS', statusStopped:'ARRÊTÉ', statusComplete:'TERMINÉ (1 CYCLE)',
+  statusErrorPayload:'ERREUR : FRAGMENT TROP GRAND', cameraUplinkTitle:'01 // LIAISON CAMÉRA', btnActivateCam:'◉ ACTIVER LA CAMÉRA',
+  btnDeactivate:'■ DÉSACTIVER', btnResetBuffer:'↺ RÉINITIALISER LE BUFFER',
+  camIdleMsg:"// CAMÉRA INACTIVE //<br>Activez la caméra et visez le flux QR de l'émetteur.",
+  acquisitionTelemetryTitle:"02 // TÉLÉMÉTRIE D'ACQUISITION", statusSearching:'◇ RECHERCHE', statusLock:'● VERROUILLÉ',
+  hudCaptureFpsLabel:'FPS capture', hudDecodeFpsLabel:'FPS décodage', hudDroppedLabel:'Perdus', hudGoodputLabel:'Débit utile',
+  hudElapsedLabel:'Temps écoulé', hudChunksLabel:'Fragments', hudSessionLabel:'Session', hudChecksumFailLabel:'Échecs de somme',
+  progressLabel:'PROGRESSION', liveLogLabel:'Journal en direct', reconstructionCompleteTitle:'✔ RECONSTRUCTION TERMINÉE — LECTURE',
+  btnDownloadFile:'⬇ TÉLÉCHARGER LE FICHIER', btnScanNew:'↺ SCANNER UNE NOUVELLE TRANSMISSION', linkReceivedTitle:'✔ LIEN REÇU',
+  btnOpenLink:'↗ OUVRIR LE LIEN', footerText:'100% HORS LIGNE // AUCUN RÉSEAU REQUIS // PROTOCOLE DE TRANSFERT OPTIQUE v1.0'
+},
+es:{
+  headerSubtitle:'// TRANSFERENCIA ÓPTICA SIN RED', modeTx:'▲ MODO: TRANSMISOR', modeRx:'▼ MODO: RECEPTOR',
+  sourceIngestTitle:'01 // ORIGEN DE DATOS', tabLocalFile:'ARCHIVO LOCAL', tabVideoUrl:'URL DE VIDEO',
+  noFileLoaded:'NINGÚN ARCHIVO CARGADO. Seleccione un medio (se recomienda &lt; 3MB para el prototipo).',
+  encodingLabel:'Codificando medio...', noUrlLoaded:'NINGUNA URL CARGADA. Pegue un enlace de YouTube, VK Video o directo.',
+  detectedTypeLabel:'TIPO DETECTADO:', txParamsTitle:'02 // PARÁMETROS DE TRANSMISIÓN', flashRateLabel:'VELOCIDAD (FPS)',
+  chunkPayloadLabel:'TAMAÑO DE FRAGMENTO (BYTES)', btnStartBroadcast:'▶ INICIAR TRANSMISIÓN', btnStop:'■ DETENER', btnLoop:'↻ BUCLE:',
+  loopOff:'NO', loopOn:'SÍ', broadcastStreamTitle:'03 // FLUJO DE TRANSMISIÓN ÓPTICA',
+  qrIdleMsg:'// ESPERANDO INICIO DE TRANSMISIÓN //<br>Apunte la cámara del receptor a este cuadro al iniciar la transmisión.',
+  hudFilenameLabel:'Nombre de archivo', hudTotalSizeLabel:'Tamaño total', hudTotalChunksLabel:'Fragmentos totales',
+  hudActiveChunkLabel:'Fragmento activo', hudTxFpsLabel:'FPS TX (real)', hudSessionIdLabel:'ID de sesión',
+  hudCyclesLabel:'Ciclos enviados', hudStatusLabel:'Estado', statusIdle:'INACTIVO', statusReady:'LISTO',
+  statusBroadcasting:'TRANSMITIENDO', statusStopped:'DETENIDO', statusComplete:'COMPLETO (1 CICLO)',
+  statusErrorPayload:'ERROR: FRAGMENTO DEMASIADO GRANDE', cameraUplinkTitle:'01 // ENLACE DE CÁMARA', btnActivateCam:'◉ ACTIVAR CÁMARA',
+  btnDeactivate:'■ DESACTIVAR', btnResetBuffer:'↺ REINICIAR BÚFER',
+  camIdleMsg:'// CÁMARA INACTIVA //<br>Active la cámara y apunte al flujo QR del transmisor.',
+  acquisitionTelemetryTitle:'02 // TELEMETRÍA DE ADQUISICIÓN', statusSearching:'◇ BUSCANDO', statusLock:'● BLOQUEADO',
+  hudCaptureFpsLabel:'FPS captura', hudDecodeFpsLabel:'FPS decodificación', hudDroppedLabel:'Perdidos', hudGoodputLabel:'Rendimiento',
+  hudElapsedLabel:'Tiempo transcurrido', hudChunksLabel:'Fragmentos', hudSessionLabel:'Sesión', hudChecksumFailLabel:'Fallos de checksum',
+  progressLabel:'PROGRESO', liveLogLabel:'Registro en vivo', reconstructionCompleteTitle:'✔ RECONSTRUCCIÓN COMPLETA — REPRODUCCIÓN',
+  btnDownloadFile:'⬇ DESCARGAR ARCHIVO', btnScanNew:'↺ ESCANEAR NUEVA TRANSMISIÓN', linkReceivedTitle:'✔ ENLACE RECIBIDO',
+  btnOpenLink:'↗ ABRIR ENLACE', footerText:'100% SIN CONEXIÓN // NO REQUIERE RED // PROTOCOLO DE TRANSFERENCIA ÓPTICA v1.0'
+},
+zh:{
+  headerSubtitle:'// 光学隔空数据传输', modeTx:'▲ 模式：发射端', modeRx:'▼ 模式：接收端',
+  sourceIngestTitle:'01 // 数据源', tabLocalFile:'本地文件', tabVideoUrl:'视频链接',
+  noFileLoaded:'未加载文件。请选择媒体文件（原型建议小于 3MB）。',
+  encodingLabel:'正在编码媒体...', noUrlLoaded:'未输入链接。请粘贴 YouTube、VK Video 或直接媒体链接。',
+  detectedTypeLabel:'检测类型：', txParamsTitle:'02 // 传输参数', flashRateLabel:'闪烁速率（FPS）',
+  chunkPayloadLabel:'分块大小（字节）', btnStartBroadcast:'▶ 开始广播', btnStop:'■ 停止', btnLoop:'↻ 循环：',
+  loopOff:'关闭', loopOn:'开启', broadcastStreamTitle:'03 // 光学广播流',
+  qrIdleMsg:'// 等待开始传输 //<br>广播开始后，将接收端摄像头对准此方框。',
+  hudFilenameLabel:'文件名', hudTotalSizeLabel:'总大小', hudTotalChunksLabel:'总分块数',
+  hudActiveChunkLabel:'当前分块索引', hudTxFpsLabel:'发送 FPS（实际）', hudSessionIdLabel:'会话 ID',
+  hudCyclesLabel:'已发送循环数', hudStatusLabel:'状态', statusIdle:'空闲', statusReady:'就绪',
+  statusBroadcasting:'广播中', statusStopped:'已停止', statusComplete:'完成（1 个循环）',
+  statusErrorPayload:'错误：数据块过大', cameraUplinkTitle:'01 // 摄像头连接', btnActivateCam:'◉ 启用摄像头',
+  btnDeactivate:'■ 关闭', btnResetBuffer:'↺ 重置缓冲区',
+  camIdleMsg:'// 摄像头未启用 //<br>启用摄像头并对准发射端的 QR 码流。',
+  acquisitionTelemetryTitle:'02 // 接收遥测数据', statusSearching:'◇ 搜索中', statusLock:'● 已锁定',
+  hudCaptureFpsLabel:'采集 FPS', hudDecodeFpsLabel:'解码 FPS', hudDroppedLabel:'丢帧数', hudGoodputLabel:'有效速率',
+  hudElapsedLabel:'已用时间', hudChunksLabel:'分块进度', hudSessionLabel:'会话', hudChecksumFailLabel:'校验失败次数',
+  progressLabel:'进度', liveLogLabel:'实时日志', reconstructionCompleteTitle:'✔ 重建完成 — 正在播放',
+  btnDownloadFile:'⬇ 下载文件', btnScanNew:'↺ 扫描新传输', linkReceivedTitle:'✔ 已接收链接',
+  btnOpenLink:'↗ 打开链接', footerText:'100% 离线 // 无需网络 // 光学数据传输协议 v1.0'
+},
+ja:{
+  headerSubtitle:'// 光学的エアギャップ転送', modeTx:'▲ モード：送信機', modeRx:'▼ モード：受信機',
+  sourceIngestTitle:'01 // ソースデータ', tabLocalFile:'ローカルファイル', tabVideoUrl:'動画URL',
+  noFileLoaded:'ファイル未読み込み。メディアを選択してください（プロトタイプ推奨: 3MB未満）。',
+  encodingLabel:'メディアをエンコード中...', noUrlLoaded:'URL未入力。YouTube、VK Video、または直接メディアリンクを貼り付けてください。',
+  detectedTypeLabel:'検出タイプ：', txParamsTitle:'02 // 送信パラメータ', flashRateLabel:'点滅速度（FPS）',
+  chunkPayloadLabel:'チャンクサイズ（バイト）', btnStartBroadcast:'▶ 送信開始', btnStop:'■ 停止', btnLoop:'↻ ループ：',
+  loopOff:'オフ', loopOn:'オン', broadcastStreamTitle:'03 // 光学送信ストリーム',
+  qrIdleMsg:'// 送信開始待機中 //<br>送信開始後、受信機のカメラをこの四角に向けてください。',
+  hudFilenameLabel:'ファイル名', hudTotalSizeLabel:'合計サイズ', hudTotalChunksLabel:'総チャンク数',
+  hudActiveChunkLabel:'現在のチャンク', hudTxFpsLabel:'送信FPS（実測）', hudSessionIdLabel:'セッションID',
+  hudCyclesLabel:'送信サイクル数', hudStatusLabel:'ステータス', statusIdle:'待機中', statusReady:'準備完了',
+  statusBroadcasting:'送信中', statusStopped:'停止', statusComplete:'完了（1サイクル）',
+  statusErrorPayload:'エラー：チャンクが大きすぎます', cameraUplinkTitle:'01 // カメラ接続', btnActivateCam:'◉ カメラ起動',
+  btnDeactivate:'■ 無効化', btnResetBuffer:'↺ バッファをリセット',
+  camIdleMsg:'// カメラ停止中 //<br>カメラを起動し、送信機のQRストリームに向けてください。',
+  acquisitionTelemetryTitle:'02 // 受信テレメトリ', statusSearching:'◇ 検索中', statusLock:'● ロック',
+  hudCaptureFpsLabel:'キャプチャFPS', hudDecodeFpsLabel:'デコードFPS', hudDroppedLabel:'ドロップ数', hudGoodputLabel:'実効速度',
+  hudElapsedLabel:'経過時間', hudChunksLabel:'チャンク', hudSessionLabel:'セッション', hudChecksumFailLabel:'チェックサム失敗',
+  progressLabel:'進捗', liveLogLabel:'ライブログ', reconstructionCompleteTitle:'✔ 再構築完了 — 再生中',
+  btnDownloadFile:'⬇ ファイルをダウンロード', btnScanNew:'↺ 新規スキャン', linkReceivedTitle:'✔ リンク受信完了',
+  btnOpenLink:'↗ リンクを開く', footerText:'100% オフライン // ネットワーク不要 // 光学データ転送プロトコル v1.0'
+},
+ko:{
+  headerSubtitle:'// 광학 에어갭 전송', modeTx:'▲ 모드: 송신기', modeRx:'▼ 모드: 수신기',
+  sourceIngestTitle:'01 // 소스 데이터', tabLocalFile:'로컬 파일', tabVideoUrl:'비디오 URL',
+  noFileLoaded:'파일이 로드되지 않았습니다. 미디어를 선택하세요 (프로토타입 권장: 3MB 미만).',
+  encodingLabel:'미디어 인코딩 중...', noUrlLoaded:'URL이 없습니다. YouTube, VK Video 또는 직접 링크를 붙여넣으세요.',
+  detectedTypeLabel:'감지된 유형:', txParamsTitle:'02 // 전송 매개변수', flashRateLabel:'점멸 속도 (FPS)',
+  chunkPayloadLabel:'청크 크기 (바이트)', btnStartBroadcast:'▶ 방송 시작', btnStop:'■ 정지', btnLoop:'↻ 루프:',
+  loopOff:'꺼짐', loopOn:'켜짐', broadcastStreamTitle:'03 // 광학 방송 스트림',
+  qrIdleMsg:'// 전송 시작 대기 중 //<br>방송이 시작되면 수신기 카메라를 이 사각형에 맞추세요.',
+  hudFilenameLabel:'파일명', hudTotalSizeLabel:'전체 크기', hudTotalChunksLabel:'전체 청크 수',
+  hudActiveChunkLabel:'현재 청크 인덱스', hudTxFpsLabel:'송신 FPS (실측)', hudSessionIdLabel:'세션 ID',
+  hudCyclesLabel:'전송된 사이클', hudStatusLabel:'상태', statusIdle:'대기', statusReady:'준비 완료',
+  statusBroadcasting:'방송 중', statusStopped:'정지됨', statusComplete:'완료 (1사이클)',
+  statusErrorPayload:'오류: 청크가 너무 큼', cameraUplinkTitle:'01 // 카메라 연결', btnActivateCam:'◉ 카메라 활성화',
+  btnDeactivate:'■ 비활성화', btnResetBuffer:'↺ 버퍼 재설정',
+  camIdleMsg:'// 카메라 비활성 //<br>카메라를 활성화하고 송신기 QR 스트림을 조준하세요.',
+  acquisitionTelemetryTitle:'02 // 수신 텔레메트리', statusSearching:'◇ 검색 중', statusLock:'● 잠금',
+  hudCaptureFpsLabel:'캡처 FPS', hudDecodeFpsLabel:'디코드 FPS', hudDroppedLabel:'손실', hudGoodputLabel:'처리량',
+  hudElapsedLabel:'경과 시간', hudChunksLabel:'청크', hudSessionLabel:'세션', hudChecksumFailLabel:'체크섬 실패',
+  progressLabel:'진행률', liveLogLabel:'실시간 로그', reconstructionCompleteTitle:'✔ 재구성 완료 — 재생 중',
+  btnDownloadFile:'⬇ 파일 다운로드', btnScanNew:'↺ 새 전송 스캔', linkReceivedTitle:'✔ 링크 수신됨',
+  btnOpenLink:'↗ 링크 열기', footerText:'100% 오프라인 // 네트워크 불필요 // 광학 데이터 전송 프로토콜 v1.0'
+},
+pt:{
+  headerSubtitle:'// TRANSFERÊNCIA ÓPTICA SEM REDE', modeTx:'▲ MODO: TRANSMISSOR', modeRx:'▼ MODO: RECEPTOR',
+  sourceIngestTitle:'01 // ORIGEM DOS DADOS', tabLocalFile:'ARQUIVO LOCAL', tabVideoUrl:'URL DE VÍDEO',
+  noFileLoaded:'NENHUM ARQUIVO CARREGADO. Selecione uma mídia (recomendado &lt; 3MB para o protótipo).',
+  encodingLabel:'Codificando mídia...', noUrlLoaded:'NENHUMA URL CARREGADA. Cole um link do YouTube, VK Video ou direto.',
+  detectedTypeLabel:'TIPO DETECTADO:', txParamsTitle:'02 // PARÂMETROS DE TRANSMISSÃO', flashRateLabel:'TAXA DE PISCA (FPS)',
+  chunkPayloadLabel:'TAMANHO DO FRAGMENTO (BYTES)', btnStartBroadcast:'▶ INICIAR TRANSMISSÃO', btnStop:'■ PARAR', btnLoop:'↻ LOOP:',
+  loopOff:'DESLIGADO', loopOn:'LIGADO', broadcastStreamTitle:'03 // FLUXO DE TRANSMISSÃO ÓPTICA',
+  qrIdleMsg:'// AGUARDANDO INÍCIO DA TRANSMISSÃO //<br>Aponte a câmera do receptor para este quadrado ao iniciar.',
+  hudFilenameLabel:'Nome do arquivo', hudTotalSizeLabel:'Tamanho total', hudTotalChunksLabel:'Total de fragmentos',
+  hudActiveChunkLabel:'Fragmento ativo', hudTxFpsLabel:'FPS TX (real)', hudSessionIdLabel:'ID da sessão',
+  hudCyclesLabel:'Ciclos enviados', hudStatusLabel:'Status', statusIdle:'INATIVO', statusReady:'PRONTO',
+  statusBroadcasting:'TRANSMITINDO', statusStopped:'PARADO', statusComplete:'CONCLUÍDO (1 CICLO)',
+  statusErrorPayload:'ERRO: FRAGMENTO GRANDE DEMAIS', cameraUplinkTitle:'01 // LINK DA CÂMERA', btnActivateCam:'◉ ATIVAR CÂMERA',
+  btnDeactivate:'■ DESATIVAR', btnResetBuffer:'↺ REDEFINIR BUFFER',
+  camIdleMsg:'// CÂMERA INATIVA //<br>Ative a câmera e aponte para o fluxo QR do transmissor.',
+  acquisitionTelemetryTitle:'02 // TELEMETRIA DE AQUISIÇÃO', statusSearching:'◇ PROCURANDO', statusLock:'● TRAVADO',
+  hudCaptureFpsLabel:'FPS de captura', hudDecodeFpsLabel:'FPS de decodificação', hudDroppedLabel:'Perdidos', hudGoodputLabel:'Vazão',
+  hudElapsedLabel:'Tempo decorrido', hudChunksLabel:'Fragmentos', hudSessionLabel:'Sessão', hudChecksumFailLabel:'Falhas de checksum',
+  progressLabel:'PROGRESSO', liveLogLabel:'Log ao vivo', reconstructionCompleteTitle:'✔ RECONSTRUÇÃO COMPLETA — REPRODUÇÃO',
+  btnDownloadFile:'⬇ BAIXAR ARQUIVO', btnScanNew:'↺ ESCANEAR NOVA TRANSMISSÃO', linkReceivedTitle:'✔ LINK RECEBIDO',
+  btnOpenLink:'↗ ABRIR LINK', footerText:'100% OFFLINE // SEM NECESSIDADE DE REDE // PROTOCOLO DE TRANSFERÊNCIA ÓPTICA v1.0'
+},
+ar:{
+  headerSubtitle:'// نقل بصري بدون شبكة', modeTx:'▲ الوضع: جهاز الإرسال', modeRx:'▼ الوضع: جهاز الاستقبال',
+  sourceIngestTitle:'01 // مصدر البيانات', tabLocalFile:'ملف محلي', tabVideoUrl:'رابط فيديو',
+  noFileLoaded:'لم يتم تحميل ملف. يرجى اختيار وسائط (يُنصح بأقل من 3 ميغابايت للنموذج الأولي).',
+  encodingLabel:'جارٍ ترميز الوسائط...', noUrlLoaded:'لم يتم إدخال رابط. الصق رابط يوتيوب أو VK Video أو رابط مباشر.',
+  detectedTypeLabel:'النوع المكتشف:', txParamsTitle:'02 // معلمات الإرسال', flashRateLabel:'معدل الوميض (FPS)',
+  chunkPayloadLabel:'حجم الجزء (بايت)', btnStartBroadcast:'▶ بدء البث', btnStop:'■ إيقاف', btnLoop:'↻ التكرار:',
+  loopOff:'إيقاف', loopOn:'تشغيل', broadcastStreamTitle:'03 // تدفق البث البصري',
+  qrIdleMsg:'// في انتظار بدء الإرسال //<br>وجّه كاميرا جهاز الاستقبال نحو هذا المربع عند بدء البث.',
+  hudFilenameLabel:'اسم الملف', hudTotalSizeLabel:'الحجم الإجمالي', hudTotalChunksLabel:'إجمالي الأجزاء',
+  hudActiveChunkLabel:'الجزء النشط', hudTxFpsLabel:'معدل الإرسال الفعلي', hudSessionIdLabel:'معرّف الجلسة',
+  hudCyclesLabel:'الدورات المرسلة', hudStatusLabel:'الحالة', statusIdle:'خامل', statusReady:'جاهز',
+  statusBroadcasting:'جارٍ البث', statusStopped:'متوقف', statusComplete:'مكتمل (دورة واحدة)',
+  statusErrorPayload:'خطأ: الجزء كبير جدًا', cameraUplinkTitle:'01 // اتصال الكاميرا', btnActivateCam:'◉ تفعيل الكاميرا',
+  btnDeactivate:'■ إيقاف التفعيل', btnResetBuffer:'↺ إعادة تعيين المخزن المؤقت',
+  camIdleMsg:'// الكاميرا غير نشطة //<br>فعّل الكاميرا ووجّهها نحو تدفق QR الخاص بجهاز الإرسال.',
+  acquisitionTelemetryTitle:'02 // بيانات الاستقبال', statusSearching:'◇ جارٍ البحث', statusLock:'● تم القفل',
+  hudCaptureFpsLabel:'معدل الالتقاط', hudDecodeFpsLabel:'معدل فك التشفير', hudDroppedLabel:'المفقود', hudGoodputLabel:'الإنتاجية',
+  hudElapsedLabel:'الوقت المنقضي', hudChunksLabel:'الأجزاء', hudSessionLabel:'الجلسة', hudChecksumFailLabel:'أخطاء التحقق',
+  progressLabel:'التقدم', liveLogLabel:'السجل المباشر', reconstructionCompleteTitle:'✔ اكتملت إعادة البناء — قيد التشغيل',
+  btnDownloadFile:'⬇ تنزيل الملف', btnScanNew:'↺ مسح إرسال جديد', linkReceivedTitle:'✔ تم استلام الرابط',
+  btnOpenLink:'↗ فتح الرابط', footerText:'100% دون اتصال // لا حاجة لشبكة // بروتوكول النقل البصري v1.0'
+}
+};
+
+function applyLanguage(lang){
+  if(!I18N[lang]) lang = 'en';
+  currentLang = lang;
+  const dict = I18N[lang];
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const key = el.getAttribute('data-i18n');
+    if(dict[key] !== undefined){
+      el.innerHTML = dict[key];
+    }
+  });
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+
+  // Re-sync a few dynamic/stateful labels that aren't static data-i18n
+  // text at load time (their content depends on app state).
+  const loopSpan = $('loopState');
+  if(loopSpan) loopSpan.textContent = txLoop ? dict.loopOn : dict.loopOff;
+
+  // Force lock badge + tx status to re-render in the new language using their own tracked state
+  setLockState(lastKnownLockState);
+  refreshTxStatusLabel();
+}
+
+/* Track last known boolean states so applyLanguage() can safely re-render
+   stateful badges (LOCK/SEARCHING, tx status) without guessing from text. */
+let lastKnownLockState = false;
+let lastKnownTxStatusKey = 'statusIdle';
+
+function refreshTxStatusLabel(){
+  const el = $('hudTxStatus');
+  if(!el) return;
+  const dict = I18N[currentLang] || I18N.en;
+  if(dict[lastKnownTxStatusKey] !== undefined){
+    el.textContent = dict[lastKnownTxStatusKey];
+  }
+}
+
+/* Central setter for the transmitter status HUD field — keeps the
+   displayed text in the currently-selected language and remembers the
+   state key so a language switch mid-broadcast re-renders correctly. */
+function setTxStatus(key, extraClass){
+  lastKnownTxStatusKey = key;
+  const el = $('hudTxStatus');
+  const dict = I18N[currentLang] || I18N.en;
+  el.textContent = dict[key] !== undefined ? dict[key] : key;
+  el.className = 'hud-value text-sm ' + (extraClass || 'text-neutral-500');
+  el.style.color = '';
+}
+
+/* =====================================================================
+   MODE SWITCH
+===================================================================== */
+function setMode(mode){
+  currentMode = mode;
+  if(mode === 'tx'){
+    $('txPanel').classList.remove('hidden');
+    $('rxPanel').classList.add('hidden');
+    $('btnModeTx').classList.add('active');
+    $('btnModeRx').classList.remove('active');
+    // if leaving receiver mode, stop camera to save battery
+    if(rxStream) stopCamera();
+  } else {
+    $('rxPanel').classList.remove('hidden');
+    $('txPanel').classList.add('hidden');
+    $('btnModeRx').classList.add('active');
+    $('btnModeTx').classList.remove('active');
+    // if leaving transmitter mode, stop broadcast
+    if(txRunning) stopTransmission();
+  }
+}
+
+/* =====================================================================
+   ===================  TRANSMITTER LOGIC  ============================
+===================================================================== */
+
+$('fpsSlider').addEventListener('input', (e)=>{
+  txFpsTarget = parseInt(e.target.value,10);
+  $('fpsSliderVal').textContent = txFpsTarget;
+});
+
+$('chunkSlider').addEventListener('input', (e)=>{
+  txChunkBytes = parseInt(e.target.value,10);
+  $('chunkSliderVal').textContent = txChunkBytes;
+});
+
+$('fileInput').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  txPayloadType = 'FILE';
+  txFileName = file.name;
+  txFileSize = file.size;
+  txMimeType = file.type || 'video/mp4';
+
+  $('fileInfoLine').textContent = `LOADED: ${file.name} — ${fmtBytes(file.size)} — ${file.type}`;
+  $('encodePct').textContent = '0%';
+  $('encodeProgFill').style.width = '0%';
+  $('btnStartTx').disabled = true;
+
+  try{
+    const arrayBuffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+
+    // Convert whole file to base64 first (single pass, then slice the
+    // base64 STRING into chunks so each QR frame carries valid,
+    // independently-decodable base64 — avoids splitting mid-byte-group
+    // issues when reassembling on the receiver side).
+    const b64Full = uint8ToBase64(bytes);
+
+    txChunks = [];
+    const totalLen = b64Full.length;
+    const sliceSize = txChunkBytes;
+    for(let i=0; i<totalLen; i+=sliceSize){
+      txChunks.push(b64Full.substring(i, i+sliceSize));
+      const pct = Math.min(100, Math.round(((i+sliceSize)/totalLen)*100));
+      if(i % (sliceSize*15) === 0){
+        $('encodePct').textContent = pct+'%';
+        $('encodeProgFill').style.width = pct+'%';
+        await new Promise(r=>setTimeout(r,0)); // yield to UI
+      }
+    }
+    $('encodePct').textContent = '100%';
+    $('encodeProgFill').style.width = '100%';
+
+    txSessionId = genSessionId();
+    txTotalChunks = txChunks.length;
+    txActiveIndex = 0;
+    txCyclesSent = 0;
+
+    $('hudFilename').textContent = txFileName;
+    $('hudTotalSize').textContent = fmtBytes(txFileSize);
+    $('hudTotalChunks').textContent = txTotalChunks;
+    $('hudSessionId').textContent = txSessionId;
+    $('hudActiveChunk').textContent = '0 / '+txTotalChunks;
+    setTxStatus('statusReady', 'glow-amber');
+
+    $('btnStartTx').disabled = false;
+  }catch(err){
+    $('fileInfoLine').textContent = 'ERROR reading file: '+err.message;
+  }
+});
+
+/* =====================================================================
+   SOURCE MODE SWITCHING (Local File vs Video URL)
+===================================================================== */
+function setSourceMode(mode){
+  txSourceMode = mode;
+  if(mode === 'file'){
+    $('tabSourceFile').classList.add('active');
+    $('tabSourceUrl').classList.remove('active');
+    $('sourcePanelFile').classList.remove('hidden');
+    $('sourcePanelUrl').classList.add('hidden');
+    // Re-evaluate readiness based on whatever was already loaded as a file
+    $('btnStartTx').disabled = (txTotalChunks === 0 || txPayloadType !== 'FILE');
+    if(txPayloadType !== 'FILE'){ resetTxPayloadState(); }
+  } else {
+    $('tabSourceFile').classList.remove('active');
+    $('tabSourceUrl').classList.add('active');
+    $('sourcePanelFile').classList.add('hidden');
+    $('sourcePanelUrl').classList.remove('hidden');
+    if(txPayloadType !== 'URL'){ resetTxPayloadState(); }
+    $('btnStartTx').disabled = (txUrlValue.trim().length === 0);
+  }
+}
+
+function resetTxPayloadState(){
+  txChunks = [];
+  txTotalChunks = 0;
+  txSessionId = null;
+  $('hudFilename').textContent = '--';
+  $('hudTotalSize').textContent = '--';
+  $('hudTotalChunks').textContent = '--';
+  $('hudSessionId').textContent = '--';
+  $('hudActiveChunk').textContent = '--';
+  setTxStatus('statusIdle', 'text-neutral-500');
+}
+
+/* Very small, dependency-free URL classifier. This only needs to steer
+   the receiver toward "embed as stream" vs "treat as direct media file" —
+   it does not need to be a fully general URL parser. */
+function classifySourceUrl(url){
+  const u = url.toLowerCase();
+  if(u.includes('youtube.com') || u.includes('youtu.be')) return 'YOUTUBE';
+  if(u.includes('vk.com') || u.includes('vkvideo.ru') || u.includes('vk.ru')) return 'VK';
+  if(/\.(mp4|webm|mov|m3u8|mp3|ogg|wav)(\?|#|$)/.test(u)) return 'DIRECT_MEDIA';
+  return 'GENERIC_LINK';
+}
+
+function handleUrlInput(){
+  const raw = $('urlInput').value.trim();
+  txUrlValue = raw;
+  const badgeWrap = $('urlTypeBadgeWrap');
+  const badge = $('urlTypeBadge');
+  const infoLine = $('urlInfoLine');
+
+  if(raw.length === 0){
+    badgeWrap.classList.add('hidden');
+    infoLine.classList.remove('hidden');
+    $('btnStartTx').disabled = true;
+    txPayloadType = 'FILE'; // no active url payload
+    return;
+  }
+
+  let valid = false;
+  try{
+    const parsed = new URL(raw);
+    valid = (parsed.protocol === 'http:' || parsed.protocol === 'https:');
+  }catch(e){ valid = false; }
+
+  if(!valid){
+    badgeWrap.classList.add('hidden');
+    infoLine.classList.remove('hidden');
+    infoLine.textContent = 'INVALID URL — must start with http:// or https://';
+    $('btnStartTx').disabled = true;
+    return;
+  }
+
+  const type = classifySourceUrl(raw);
+  badge.textContent = type.replace('_',' ');
+  badgeWrap.classList.remove('hidden');
+  infoLine.classList.add('hidden');
+
+  // Prepare tiny chunk set for URL mode — a URL is small enough that we
+  // rarely need more than 1 QR frame, but we still chunk (max ~120 bytes
+  // per frame) so extremely long URLs (tracking params, playlist IDs,
+  // signed direct-media links) still transmit reliably as 2-3 frames.
+  const urlChunkSize = 120;
+  txChunks = [];
+  for(let i=0; i<raw.length; i+=urlChunkSize){
+    txChunks.push(raw.substring(i, i+urlChunkSize));
+  }
+  if(txChunks.length === 0) txChunks = [''];
+  if(txChunks.length > 3){
+    // Extremely long link — still works, just chunk it fully rather than
+    // silently truncating (truncating a URL would break playback entirely).
+  }
+
+  txPayloadType = 'URL';
+  txMimeType = type; // reuse the mime slot to carry the detected link type
+  txSessionId = genSessionId();
+  txTotalChunks = txChunks.length;
+  txActiveIndex = 0;
+  txCyclesSent = 0;
+  txFileName = raw.length > 40 ? raw.substring(0,37)+'...' : raw;
+  txFileSize = raw.length;
+
+  $('hudFilename').textContent = txFileName;
+  $('hudTotalSize').textContent = raw.length + ' chars';
+  $('hudTotalChunks').textContent = txTotalChunks;
+  $('hudSessionId').textContent = txSessionId;
+  $('hudActiveChunk').textContent = '0 / '+txTotalChunks;
+  setTxStatus('statusReady', 'glow-amber');
+
+  $('btnStartTx').disabled = false;
+}
+
+function uint8ToBase64(bytes){
+  let binary = '';
+  const chunkSize = 0x8000;
+  for(let i=0;i<bytes.length;i+=chunkSize){
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i+chunkSize));
+  }
+  return btoa(binary);
+}
+
+function buildFramePayload(index){
+  const payload = txChunks[index];
+  // Header now carries an explicit PAYLOAD TYPE field so the receiver can
+  // branch between "reassemble binary file" and "reassemble a URL string
+  // and open a stream/embed" without guessing from content shape.
+  const header = `${txSessionId}|${txTotalChunks}|${index}|${txPayloadType}|${txMimeType}`;
+  const cs = checksumStr(header+'|'+payload);
+  return `${header}|${cs}|${payload}`;
+}
+
+function renderQrFrame(index){
+  const data = buildFramePayload(index);
+  const stage = $('qrStage');
+
+  try{
+    if(!qrCodeInstance){
+      stage.innerHTML = '';
+      qrCodeInstance = new QRCode(stage, {
+        text: data,
+        width: 480,
+        height: 480,
+        colorDark: '#000000',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.L // Low EC = more data capacity, needed for large payloads
+      });
+    } else {
+      qrCodeInstance.clear();
+      qrCodeInstance.makeCode(data);
+    }
+  }catch(err){
+    // qrcode.js throws if payload exceeds max QR capacity (~2953 bytes at L).
+    // This happens if the chunk-size slider is pushed too high. Auto-stop
+    // and surface a clear error instead of silently freezing the broadcast.
+    stopTransmission();
+    setTxStatus('statusErrorPayload', 'glow-red');
+    $('hudTxStatus').style.color = 'var(--red)';
+    alert('QR encoding failed: payload chunk too large for a single QR code (data+header exceeds ~2900 byte capacity at this error-correction level). Lower the "Chunk Payload" slider and restart the broadcast.');
+  }
+}
+
+function startTransmission(){
+  if(txTotalChunks === 0) return;
+  txRunning = true;
+  txActiveIndex = 0;
+  txFrameTimestamps = [];
+  $('qrIdleMsg') && ($('qrIdleMsg').style.display = 'none');
+  $('btnStartTx').disabled = true;
+  $('btnStopTx').disabled = false;
+  setTxStatus('statusBroadcasting', 'glow-green');
+  txLastFrameTime = performance.now();
+  txAnimHandle = requestAnimationFrame(txLoopStep);
+}
+
+function stopTransmission(){
+  txRunning = false;
+  if(txAnimHandle) cancelAnimationFrame(txAnimHandle);
+  $('btnStartTx').disabled = txTotalChunks === 0;
+  $('btnStopTx').disabled = true;
+  setTxStatus('statusStopped', 'text-neutral-500');
+}
+
+function toggleLoop(){
+  txLoop = !txLoop;
+  const dict = I18N[currentLang] || I18N.en;
+  $('loopState').textContent = txLoop ? dict.loopOn : dict.loopOff;
+}
+
+function txLoopStep(now){
+  if(!txRunning) return;
+  const interval = 1000 / txFpsTarget;
+  const elapsed = now - txLastFrameTime;
+
+  if(elapsed >= interval){
+    txLastFrameTime = now - (elapsed % interval);
+
+    renderQrFrame(txActiveIndex);
+
+    // FPS measurement (rolling window)
+    txFrameTimestamps.push(now);
+    txFrameTimestamps = txFrameTimestamps.filter(t => now - t < 1000);
+    $('hudTxFps').textContent = txFrameTimestamps.length.toFixed(1);
+
+    $('hudActiveChunk').textContent = txActiveIndex + ' / ' + txTotalChunks;
+
+    txActiveIndex++;
+    if(txActiveIndex >= txTotalChunks){
+      txActiveIndex = 0;
+      txCyclesSent++;
+      $('hudCycles').textContent = txCyclesSent;
+      if(!txLoop){
+        stopTransmission();
+        setTxStatus('statusComplete', 'glow-green');
+        return;
+      }
+    }
+  }
+
+  txAnimHandle = requestAnimationFrame(txLoopStep);
+}
+
+/* =====================================================================
+   ===================  RECEIVER LOGIC  ================================
+===================================================================== */
+
+function logLine(msg, isDrop){
+  const pane = $('logPane');
+  const line = document.createElement('div');
+  line.className = 'log-line ' + (isDrop ? 'log-drop' : 'log-ok');
+  const t = new Date().toTimeString().split(' ')[0];
+  line.textContent = `[${t}] ${msg}`;
+  pane.appendChild(line);
+  pane.scrollTop = pane.scrollHeight;
+  while(pane.children.length > 60){ pane.removeChild(pane.firstChild); }
+}
+
+async function startCamera(){
+  try{
+    rxStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width:{ideal:1280}, height:{ideal:1280} },
+      audio: false
+    });
+    const video = $('camPreview');
+    video.srcObject = rxStream;
+    await video.play();
+
+    $('camIdleMsg').style.display = 'none';
+    $('btnStartCam').disabled = true;
+    $('btnStopCam').disabled = false;
+
+    rxScanning = true;
+    rxStartTime = performance.now();
+    rxCaptureFrameTimestamps = [];
+    rxDecodeFrameTimestamps = [];
+    logLine('Camera uplink established. Scanning for QR stream...');
+    rxAnimHandle = requestAnimationFrame(rxScanStep);
+    updateElapsedLoop();
+  }catch(err){
+    logLine('CAMERA ERROR: '+err.message, true);
+    alert('Camera access failed: '+err.message);
+  }
+}
+
+function stopCamera(){
+  rxScanning = false;
+  if(rxAnimHandle) cancelAnimationFrame(rxAnimHandle);
+  if(rxStream){
+    rxStream.getTracks().forEach(t=>t.stop());
+    rxStream = null;
+  }
+  $('camIdleMsg').style.display = 'flex';
+  $('btnStartCam').disabled = false;
+  $('btnStopCam').disabled = true;
+  setLockState(false);
+}
+
+function resetReceiver(){
+  stopCamera();
+  rxSessionId = null;
+  rxTotalChunks = 0;
+  rxPayloadType = 'FILE';
+  rxChunksMap.clear();
+  rxDroppedCount = 0;
+  rxChecksumFailCount = 0;
+  rxBytesReceived = 0;
+  rxLastSeenIndices.clear();
+  rxGoodputSamples = [];
+  rxLastGoodputCheck = { time: 0, bytes: 0 };
+
+  $('hudCaptureFps').textContent = '0.0';
+  $('hudDecodeFps').textContent = '0.0';
+  $('hudDropped').textContent = '0';
+  $('hudGoodput').innerHTML = '0.0 <span class="text-xs">KB/s</span>';
+  $('hudElapsed').textContent = '00:00';
+  $('hudChunksRatio').textContent = '0/0';
+  $('hudRxSession').textContent = '--';
+  $('hudChecksumFail').textContent = '0';
+  $('progressPct').textContent = '0%';
+  $('progressFill').style.width = '0%';
+  $('chunkGrid').innerHTML = '';
+  $('logPane').innerHTML = '';
+  $('playerPanel').classList.add('hidden');
+  $('urlPlayerPanel').classList.add('hidden');
+  $('urlEmbedWrap').innerHTML = '';
+  $('urlDirectLine').textContent = '';
+  const dl = $('downloadLink');
+  if(dl.href && dl.href.startsWith('blob:')) URL.revokeObjectURL(dl.href);
+  logLine('Buffer reset. Ready for new acquisition.');
+}
+
+function setLockState(locked){
+  lastKnownLockState = locked;
+  const badge = $('lockBadge');
+  const dict = I18N[currentLang] || I18N.en;
+  if(locked){
+    badge.textContent = dict.statusLock;
+    badge.className = 'lock-badge glow-green';
+    badge.style.color = 'var(--green)';
+  } else {
+    badge.textContent = dict.statusSearching;
+    badge.className = 'lock-badge blink';
+    badge.style.color = 'var(--amber)';
+  }
+}
+
+function updateElapsedLoop(){
+  if(!rxScanning && rxChunksMap.size === 0) return;
+  if(rxStartTime){
+    $('hudElapsed').textContent = fmtElapsed(performance.now() - rxStartTime);
+  }
+  if(rxScanning) setTimeout(updateElapsedLoop, 500);
+}
+
+const hiddenCanvas = () => $('hiddenDecodeCanvas');
+
+function rxScanStep(now){
+  if(!rxScanning) return;
+
+  const video = $('camPreview');
+  if(video.readyState === video.HAVE_ENOUGH_DATA){
+
+    rxCaptureFrameTimestamps.push(now);
+    rxCaptureFrameTimestamps = rxCaptureFrameTimestamps.filter(t => now - t < 1000);
+    $('hudCaptureFps').textContent = rxCaptureFrameTimestamps.length.toFixed(1);
+
+    // Downscale for decode speed — jsQR cost scales with pixel count.
+    const targetW = 640;
+    const scale = targetW / video.videoWidth;
+    const targetH = Math.round(video.videoHeight * scale);
+
+    const canvas = hiddenCanvas();
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(video, 0, 0, targetW, targetH);
+
+    let imageData;
+    try{
+      imageData = ctx.getImageData(0, 0, targetW, targetH);
+    }catch(e){
+      rxAnimHandle = requestAnimationFrame(rxScanStep);
+      return;
+    }
+
+    const code = jsQR(imageData.data, imageData.width, imageData.height, {
+      inversionAttempts: 'dontInvert'
+    });
+
+    rxDecodeFrameTimestamps.push(now);
+    rxDecodeFrameTimestamps = rxDecodeFrameTimestamps.filter(t => now - t < 1000);
+    $('hudDecodeFps').textContent = rxDecodeFrameTimestamps.length.toFixed(1);
+
+    if(code && code.data){
+      handleDecodedFrame(code.data);
+      setLockState(true);
+      rxLastLockTime = now;
+    } else if(now - rxLastLockTime > 350){
+      setLockState(false);
+    }
+  }
+
+  rxAnimHandle = requestAnimationFrame(rxScanStep);
+}
+
+function handleDecodedFrame(raw){
+  // Expected: SESSIONID|TOTALCHUNKS|INDEX|PAYLOADTYPE|MIME|CHECKSUM|DATA
+  const firstSplit = raw.split('|');
+  if(firstSplit.length < 7){
+    rxDroppedCount++;
+    $('hudDropped').textContent = rxDroppedCount;
+    logLine('DROP: malformed frame (bad structure)', true);
+    return;
+  }
+
+  const sessionId = firstSplit[0];
+  const totalChunks = parseInt(firstSplit[1], 10);
+  const index = parseInt(firstSplit[2], 10);
+  const payloadType = firstSplit[3] === 'URL' ? 'URL' : 'FILE';
+  const mime = firstSplit[4];
+  const checksum = firstSplit[5];
+  const payload = firstSplit.slice(6).join('|'); // base64/URL text shouldn't contain '|' but be safe
+
+  if(isNaN(totalChunks) || isNaN(index)){
+    rxDroppedCount++;
+    $('hudDropped').textContent = rxDroppedCount;
+    logLine('DROP: invalid header numerics', true);
+    return;
+  }
+
+  const header = `${sessionId}|${totalChunks}|${index}|${payloadType}|${mime}`;
+  const expectedChecksum = checksumStr(header+'|'+payload);
+  if(expectedChecksum !== checksum){
+    rxChecksumFailCount++;
+    rxDroppedCount++;
+    $('hudChecksumFail').textContent = rxChecksumFailCount;
+    $('hudDropped').textContent = rxDroppedCount;
+    logLine(`DROP: checksum mismatch on chunk ${index}`, true);
+    return;
+  }
+
+  // New session detected -> reset buffer automatically
+  if(rxSessionId === null){
+    rxSessionId = sessionId;
+    rxTotalChunks = totalChunks;
+    rxPayloadType = payloadType;
+    rxMimeType = mime || 'video/mp4';
+    rxStartTime = performance.now();
+    rxBytesReceived = 0;
+    rxChunksMap.clear();
+    buildChunkGrid(totalChunks);
+    $('hudRxSession').textContent = sessionId;
+    $('hudChunksRatio').textContent = `0/${totalChunks}`;
+    logLine(`NEW SESSION LOCKED: ${sessionId} — ${totalChunks} chunk(s) expected — type ${payloadType}`);
+  } else if(rxSessionId !== sessionId){
+    // Different broadcast detected mid-scan — start fresh session
+    logLine(`Session changed (${rxSessionId} -> ${sessionId}). Resetting buffer.`);
+    rxSessionId = sessionId;
+    rxTotalChunks = totalChunks;
+    rxPayloadType = payloadType;
+    rxMimeType = mime || 'video/mp4';
+    rxStartTime = performance.now();
+    rxBytesReceived = 0;
+    rxChunksMap.clear();
+    buildChunkGrid(totalChunks);
+    $('hudRxSession').textContent = sessionId;
+  }
+
+  if(rxChunksMap.has(index)){
+    // duplicate — silently discard (expected, since we loop-scan)
+    return;
+  }
+
+  if(index < 0 || index >= rxTotalChunks){
+    rxDroppedCount++;
+    $('hudDropped').textContent = rxDroppedCount;
+    logLine(`DROP: index ${index} out of range`, true);
+    return;
+  }
+
+  // Store
+  rxChunksMap.set(index, payload);
+  rxBytesReceived += payload.length;
+  markChunkGotUI(index);
+
+  const gotCount = rxChunksMap.size;
+  $('hudChunksRatio').textContent = `${gotCount}/${rxTotalChunks}`;
+  const pct = Math.round((gotCount/rxTotalChunks)*100);
+  $('progressPct').textContent = pct+'%';
+  $('progressFill').style.width = pct+'%';
+
+  updateGoodput();
+
+  if(gotCount === rxTotalChunks){
+    logLine(`ALL ${rxTotalChunks} CHUNKS ACQUIRED. Reassembling...`);
+    if(rxPayloadType === 'URL'){
+      finalizeUrl();
+    } else {
+      finalizeVideo();
+    }
+  }
+}
+
+function updateGoodput(){
+  const now = performance.now();
+  if(rxLastGoodputCheck.time === 0){
+    rxLastGoodputCheck = { time: now, bytes: rxBytesReceived };
+    return;
+  }
+  const dt = (now - rxLastGoodputCheck.time) / 1000;
+  if(dt >= 0.4){
+    const db = rxBytesReceived - rxLastGoodputCheck.bytes;
+    const kbps = (db / dt) / 1024;
+    $('hudGoodput').innerHTML = kbps.toFixed(1) + ' <span class="text-xs">KB/s</span>';
+    rxLastGoodputCheck = { time: now, bytes: rxBytesReceived };
+  }
+}
+
+function buildChunkGrid(total){
+  const grid = $('chunkGrid');
+  grid.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  const maxCells = Math.min(total, 2000); // cap DOM nodes for huge counts
+  for(let i=0;i<maxCells;i++){
+    const cell = document.createElement('div');
+    cell.className = 'chunk-cell';
+    cell.id = 'cell_'+i;
+    frag.appendChild(cell);
+  }
+  grid.appendChild(frag);
+}
+
+function markChunkGotUI(index){
+  if(index < 2000){
+    const cell = $('cell_'+index);
+    if(cell) cell.classList.add('got');
+  }
+}
+
+function finalizeVideo(){
+  rxScanning = false;
+  if(rxAnimHandle) cancelAnimationFrame(rxAnimHandle);
+  stopCamera();
+
+  try{
+    // Reassemble base64 string in correct order
+    let fullB64 = '';
+    for(let i=0;i<rxTotalChunks;i++){
+      fullB64 += rxChunksMap.get(i);
+    }
+
+    const binaryStr = atob(fullB64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for(let i=0;i<binaryStr.length;i++){
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+
+    const blob = new Blob([bytes], { type: rxMimeType || 'video/mp4' });
+    const url = URL.createObjectURL(blob);
+
+    const player = $('playerOut');
+    player.src = url;
+
+    const dl = $('downloadLink');
+    dl.href = url;
+    const ext = (rxMimeType && rxMimeType.includes('webm')) ? 'webm' : 'mp4';
+    dl.download = `received_video_${rxSessionId}.${ext}`;
+
+    $('playerPanel').classList.remove('hidden');
+    $('playerPanel').scrollIntoView({ behavior:'smooth', block:'start' });
+    logLine('Video reconstructed successfully. Playback started.');
+  }catch(err){
+    logLine('RECONSTRUCTION ERROR: '+err.message, true);
+    alert('Failed to reconstruct video: '+err.message+'\nThis usually means one or more chunks were corrupted despite checksum pass, or the source encoding failed. Try resetting and re-scanning.');
+  }
+}
+
+/* Reassembles a received URL-type session and routes it to either an
+   embedded streaming player (YouTube/VK) or opens/loads it as a direct
+   media link, depending on what the transmitter detected. */
+function finalizeUrl(){
+  rxScanning = false;
+  if(rxAnimHandle) cancelAnimationFrame(rxAnimHandle);
+  stopCamera();
+
+  try{
+    let fullUrl = '';
+    for(let i=0;i<rxTotalChunks;i++){
+      fullUrl += rxChunksMap.get(i);
+    }
+
+    const linkType = rxMimeType; // YOUTUBE | VK | DIRECT_MEDIA | GENERIC_LINK
+    const embedWrap = $('urlEmbedWrap');
+    const directLine = $('urlDirectLine');
+    const openLink = $('urlOpenLink');
+    embedWrap.innerHTML = '';
+    directLine.textContent = '';
+
+    let embedSrc = null;
+    if(linkType === 'YOUTUBE'){
+      embedSrc = toYouTubeEmbed(fullUrl);
+    } else if(linkType === 'VK'){
+      embedSrc = null; // VK embed requires oEmbed/app-specific params we can't resolve offline reliably
+    }
+
+    if(embedSrc){
+      const iframe = document.createElement('iframe');
+      iframe.src = embedSrc;
+      iframe.width = '100%';
+      iframe.height = '360';
+      iframe.style.border = '2px solid var(--green)';
+      iframe.allow = 'autoplay; encrypted-media; picture-in-picture';
+      iframe.allowFullscreen = true;
+      embedWrap.appendChild(iframe);
+    } else if(linkType === 'DIRECT_MEDIA'){
+      const isAudio = /\.(mp3|ogg|wav)(\?|#|$)/i.test(fullUrl);
+      const mediaEl = document.createElement(isAudio ? 'audio' : 'video');
+      mediaEl.src = fullUrl;
+      mediaEl.controls = true;
+      mediaEl.autoplay = true;
+      if(!isAudio){
+        mediaEl.id = 'playerOut';
+        mediaEl.style.width = '100%';
+        mediaEl.style.maxHeight = '70vh';
+        mediaEl.style.background = '#000';
+        mediaEl.style.border = '2px solid var(--green)';
+      } else {
+        mediaEl.style.width = '100%';
+      }
+      embedWrap.appendChild(mediaEl);
+    } else {
+      // Generic / VK link — offline environment can't reliably render VK's
+      // JS embed without network access to VK's own scripts, so surface the
+      // link clearly for the user to open instead of a broken iframe.
+      directLine.textContent = fullUrl;
+    }
+
+    openLink.href = fullUrl;
+    $('urlPlayerPanel').classList.remove('hidden');
+    $('urlPlayerPanel').scrollIntoView({ behavior:'smooth', block:'start' });
+    logLine('URL reconstructed successfully: '+fullUrl);
+  }catch(err){
+    logLine('URL RECONSTRUCTION ERROR: '+err.message, true);
+    alert('Failed to reconstruct URL: '+err.message);
+  }
+}
+
+function toYouTubeEmbed(url){
+  try{
+    const u = new URL(url);
+    let videoId = null;
+    if(u.hostname.includes('youtu.be')){
+      videoId = u.pathname.replace('/','');
+    } else if(u.searchParams.get('v')){
+      videoId = u.searchParams.get('v');
+    } else if(u.pathname.startsWith('/embed/')){
+      videoId = u.pathname.split('/embed/')[1];
+    } else if(u.pathname.startsWith('/shorts/')){
+      videoId = u.pathname.split('/shorts/')[1];
+    }
+    if(!videoId) return null;
+    videoId = videoId.split('&')[0].split('?')[0];
+    return `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+  }catch(e){
+    return null;
+  }
+}
+
+/* Init */
+applyLanguage('en');
+setMode('tx');
+</script>
+</body>
+</html>
