@@ -1355,46 +1355,75 @@ function rxScanStep(now){
   if(!rxScanning) return;
 
   const video = $('camPreview');
-  if(video.readyState === video.HAVE_ENOUGH_DATA){
+
+  // Guard against the real cause of "totally blind" scanning: on some
+  // browsers/devices video.readyState can report HAVE_ENOUGH_DATA for a
+  // frame or two before videoWidth/videoHeight are populated (still 0).
+  // If that happens, targetW/targetH below become 0 or NaN, canvas.width
+  // silently coerces to 0, and every single getImageData() call either
+  // throws (caught and swallowed) or hands jsQR an empty buffer — so it
+  // never finds anything, permanently, even once the camera is fine.
+  if(video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0 && video.videoHeight > 0){
 
     rxCaptureFrameTimestamps.push(now);
     rxCaptureFrameTimestamps = rxCaptureFrameTimestamps.filter(t => now - t < 1000);
     $('hudCaptureFps').textContent = rxCaptureFrameTimestamps.length.toFixed(1);
 
     // Downscale for decode speed — jsQR cost scales with pixel count.
+    // Recomputed every tick (cheap) instead of cached, so it self-heals
+    // if the camera stream's resolution changes mid-session.
     const targetW = 640;
     const scale = targetW / video.videoWidth;
-    const targetH = Math.round(video.videoHeight * scale);
+    const targetH = Math.max(1, Math.round(video.videoHeight * scale));
 
     const canvas = hiddenCanvas();
-    canvas.width = targetW;
-    canvas.height = targetH;
+    if(canvas.width !== targetW) canvas.width = targetW;
+    if(canvas.height !== targetH) canvas.height = targetH;
+
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    // Draw the exact current video frame into the hidden canvas at the
+    // downscaled size. This canvas is never CSS-mirrored/transformed —
+    // it's a raw, faithful pixel copy of what the camera sees, which is
+    // what jsQR needs (mirroring the *decode* buffer would flip the QR
+    // and jsQR would never lock). Any visual mirroring for the user's
+    // on-screen preview belongs on #camPreview via CSS only, never here.
+    ctx.clearRect(0, 0, targetW, targetH);
     ctx.drawImage(video, 0, 0, targetW, targetH);
 
     let imageData;
     try{
       imageData = ctx.getImageData(0, 0, targetW, targetH);
     }catch(e){
+      // getImageData can throw on a tainted/not-yet-ready canvas — skip
+      // this tick only, keep the loop alive.
       rxAnimHandle = requestAnimationFrame(rxScanStep);
       return;
     }
 
+    // Actually decode on every tick, and explicitly check the result —
+    // jsQR returns null (not throws) when no code is found in-frame.
     const code = jsQR(imageData.data, imageData.width, imageData.height, {
-      inversionAttempts: 'dontInvert'
+      inversionAttempts: 'attemptBoth'
     });
 
     rxDecodeFrameTimestamps.push(now);
     rxDecodeFrameTimestamps = rxDecodeFrameTimestamps.filter(t => now - t < 1000);
     $('hudDecodeFps').textContent = rxDecodeFrameTimestamps.length.toFixed(1);
 
-    if(code && code.data){
+    if(code && code.data && code.data.length > 0){
+      // Valid QR located and decoded this tick — parse our protocol
+      // header immediately. handleDecodedFrame() does the "|" split,
+      // checksum validation, and chunk assembly.
       handleDecodedFrame(code.data);
       setLockState(true);
       rxLastLockTime = now;
     } else if(now - rxLastLockTime > 350){
       setLockState(false);
     }
+  } else {
+    // Video not ready yet this tick (dimensions still 0, or buffering) —
+    // don't count it as capture/decode activity, just wait for next frame.
   }
 
   rxAnimHandle = requestAnimationFrame(rxScanStep);
