@@ -4,4 +4,4 @@
 ## This project is completely independent. It is not affiliated with, nor does it copy or steal from any other projects. This is strictly a "fan-made" and "experimental/testing" prototype.
 #### X/Twitter: @OXeallCorp
 #### X/Twitter: @hi9eSs
-[WEBSITE (LATEST VERSION)](https://hi9es.github.io/InSpace)
+[WEBSITE (LATEST VERSION)](https://hi9es.github.io/QR-Link/) TEMPORARILY OUT OF SERVICE
