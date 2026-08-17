@@ -135,21 +135,68 @@
     box-shadow:0 0 10px rgba(16,185,129,0.6);
   }
 
-  #qrStage{
+  .qr-grid-stage{
+    display:grid;
+    gap:8px;
+    max-width:480px;
+    margin:0 auto;
+  }
+  .qr-grid-stage.layout-1{ grid-template-columns:1fr; grid-template-rows:1fr; }
+  .qr-grid-stage.layout-2{ grid-template-columns:1fr 1fr; grid-template-rows:1fr; }
+  .qr-grid-stage.layout-4{ grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; }
+  .qr-grid-stage.layout-6{ grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr 1fr; }
+  .qr-cell{
     background:#000;
-    display:flex;
+    display:none;
     align-items:center;
     justify-content:center;
     aspect-ratio:1/1;
-    max-width:480px;
-    margin:0 auto;
     border:2px solid var(--amber-dim);
+    overflow:hidden;
   }
-  #qrStage img, #qrStage canvas{
+  .qr-grid-stage.layout-1 .qr-cell[data-cell="0"]{ display:flex; }
+  .qr-grid-stage.layout-2 .qr-cell[data-cell="0"],
+  .qr-grid-stage.layout-2 .qr-cell[data-cell="1"]{ display:flex; }
+  .qr-grid-stage.layout-4 .qr-cell[data-cell="0"],
+  .qr-grid-stage.layout-4 .qr-cell[data-cell="1"],
+  .qr-grid-stage.layout-4 .qr-cell[data-cell="2"],
+  .qr-grid-stage.layout-4 .qr-cell[data-cell="3"]{ display:flex; }
+  .qr-grid-stage.layout-6 .qr-cell{ display:flex; }
+  .qr-cell-inner{ width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
+  .qr-cell-inner img, .qr-cell-inner canvas{
     image-rendering:pixelated;
     width:100%!important;
     height:100%!important;
   }
+
+  .grid-opt{
+    border:1px solid #262626;
+    background:#0d0d0d;
+    padding:8px 4px;
+    text-align:center;
+    cursor:pointer;
+    transition:all 0.15s ease;
+  }
+  .grid-opt.active{
+    border-color:var(--amber);
+    background:rgba(245,158,11,0.08);
+    box-shadow:inset 0 0 12px rgba(245,158,11,0.12);
+  }
+  .grid-opt-preview{
+    display:grid;
+    gap:2px;
+    width:28px;
+    height:28px;
+    margin:0 auto 4px auto;
+  }
+  .grid-opt-preview.g1{ grid-template-columns:1fr; }
+  .grid-opt-preview.g2{ grid-template-columns:1fr 1fr; }
+  .grid-opt-preview.g4{ grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; }
+  .grid-opt-preview.g6{ grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr 1fr; }
+  .grid-opt-preview span{ background:var(--amber-dim); }
+  .grid-opt.active .grid-opt-preview span{ background:var(--amber); }
+  .grid-opt-label{ font-size:10px; letter-spacing:0.1em; color:#8a8a8a; }
+  .grid-opt.active .grid-opt-label{ color:var(--amber); }
 
   .lock-badge{
     padding:6px 14px;
@@ -301,6 +348,12 @@
   [dir="rtl"] .log-line, [dir="rtl"] .hud-value, [dir="rtl"] .hud-label{
     text-align:right;
   }
+  [dir="rtl"] .grid-opt-label{
+    text-align:center; /* grid preview boxes stay centered regardless of direction */
+  }
+  [dir="rtl"] textarea.tech-input, [dir="rtl"] input.tech-input{
+    text-align:right;
+  }
 </style>
 </head>
 <body class="bg-grid scanlines min-h-screen pb-16">
@@ -349,6 +402,7 @@
       <div class="flex border border-neutral-800 mb-3">
         <div id="tabSourceFile" class="source-tab active" onclick="setSourceMode('file')" data-i18n="tabLocalFile">LOCAL FILE</div>
         <div id="tabSourceUrl" class="source-tab" onclick="setSourceMode('url')" data-i18n="tabVideoUrl">VIDEO URL</div>
+        <div id="tabSourceText" class="source-tab" onclick="setSourceMode('text')" data-i18n="tabRawText">RAW TEXT</div>
       </div>
 
       <!-- Local file sub-panel -->
@@ -370,11 +424,44 @@
           <span id="urlTypeBadge" class="type-badge text-amber-400">--</span>
         </div>
       </div>
+
+      <!-- Raw text sub-panel -->
+      <div id="sourcePanelText" class="hidden">
+        <textarea id="textInput" class="tech-input" rows="5" style="resize:vertical;font-family:inherit;" placeholder="Type or paste a secure note here (full UTF-8 supported — Cyrillic, CJK, emoji, etc.)" oninput="handleTextInput()"></textarea>
+        <div id="textInfoLine" class="mt-3 text-xs text-neutral-500" data-i18n="noTextLoaded">NO TEXT ENTERED. Type a message above — UTF-8 byte-safe encoding, Cyrillic and other scripts fully supported.</div>
+        <div id="textByteBadgeWrap" class="mt-2 hidden">
+          <span class="hud-label" data-i18n="byteLengthLabel">UTF-8 BYTE LENGTH:</span>
+          <span id="textByteBadge" class="type-badge text-amber-400">--</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Grid Layout Selector -->
+    <div class="panel panel-corners p-4 mb-4">
+      <div class="hud-label mb-3" data-i18n="gridLayoutTitle">02 // GRID LAYOUT / МАКЕТ</div>
+      <div class="grid grid-cols-4 gap-2">
+        <div id="gridOpt1" class="grid-opt active" onclick="setGridLayout(1)">
+          <div class="grid-opt-preview g1"><span></span></div>
+          <div class="grid-opt-label">1×</div>
+        </div>
+        <div id="gridOpt2" class="grid-opt" onclick="setGridLayout(2)">
+          <div class="grid-opt-preview g2"><span></span><span></span></div>
+          <div class="grid-opt-label">2×</div>
+        </div>
+        <div id="gridOpt4" class="grid-opt" onclick="setGridLayout(4)">
+          <div class="grid-opt-preview g4"><span></span><span></span><span></span><span></span></div>
+          <div class="grid-opt-label">4×</div>
+        </div>
+        <div id="gridOpt6" class="grid-opt" onclick="setGridLayout(6)">
+          <div class="grid-opt-preview g6"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          <div class="grid-opt-label">6×</div>
+        </div>
+      </div>
     </div>
 
     <!-- Config -->
     <div class="panel panel-corners p-4 mb-4">
-      <div class="hud-label mb-3" data-i18n="txParamsTitle">02 // TRANSMISSION PARAMETERS</div>
+      <div class="hud-label mb-3" data-i18n="txParamsTitle">03 // TRANSMISSION PARAMETERS</div>
       <div class="grid grid-cols-2 gap-4">
         <div>
           <div class="flex justify-between hud-label mb-1"><span data-i18n="flashRateLabel">FLASH RATE (FPS)</span><span id="fpsSliderVal" class="text-amber-400">12</span></div>
@@ -392,12 +479,18 @@
       </div>
     </div>
 
-    <!-- QR Stage -->
+    <!-- QR Stage (adaptive multi-cell grid) -->
     <div class="panel panel-corners p-4 mb-4">
-      <div class="hud-label mb-3 text-center" data-i18n="broadcastStreamTitle">03 // OPTICAL BROADCAST STREAM</div>
-      <div id="qrStage">
-        <div id="qrIdleMsg" class="text-neutral-700 text-xs text-center px-6" data-i18n="qrIdleMsg">// AWAITING TRANSMISSION START //<br>Point receiver camera at this square once broadcast begins.</div>
+      <div class="hud-label mb-3 text-center" data-i18n="broadcastStreamTitle">04 // OPTICAL BROADCAST STREAM</div>
+      <div id="qrGridStage" class="qr-grid-stage layout-1">
+        <div class="qr-cell" data-cell="0"><div class="qr-cell-inner" id="qrCell0"></div></div>
+        <div class="qr-cell" data-cell="1"><div class="qr-cell-inner" id="qrCell1"></div></div>
+        <div class="qr-cell" data-cell="2"><div class="qr-cell-inner" id="qrCell2"></div></div>
+        <div class="qr-cell" data-cell="3"><div class="qr-cell-inner" id="qrCell3"></div></div>
+        <div class="qr-cell" data-cell="4"><div class="qr-cell-inner" id="qrCell4"></div></div>
+        <div class="qr-cell" data-cell="5"><div class="qr-cell-inner" id="qrCell5"></div></div>
       </div>
+      <div id="qrIdleMsg" class="text-neutral-700 text-xs text-center px-6 mt-3" data-i18n="qrIdleMsg">// AWAITING TRANSMISSION START //<br>Point receiver camera at this square once broadcast begins.</div>
     </div>
 
     <!-- HUD -->
@@ -433,6 +526,10 @@
       <div class="panel panel-corners p-3">
         <div class="hud-label" data-i18n="hudStatusLabel">Status</div>
         <div id="hudTxStatus" class="hud-value text-sm text-neutral-500" data-i18n="statusIdle">IDLE</div>
+      </div>
+      <div class="panel panel-corners p-3">
+        <div class="hud-label" data-i18n="hudGridCellsLabel">Active Grid Cells</div>
+        <div id="hudGridCells" class="hud-value text-sm glow-amber">1</div>
       </div>
     </div>
   </section>
@@ -533,6 +630,20 @@
       </div>
     </div>
 
+    <!-- Raw Text Output -->
+    <div id="textPlayerPanel" class="panel panel-corners green p-4 hidden">
+      <div class="hud-label mb-3 glow-green" data-i18n="textReceivedTitle">✔ SECURE TEXT RECEIVED</div>
+      <textarea id="textOutputArea" class="tech-input" rows="6" readonly style="resize:vertical;font-family:inherit;"></textarea>
+      <div class="mt-2 text-xs text-neutral-500">
+        <span class="hud-label" data-i18n="byteLengthLabel">UTF-8 BYTE LENGTH:</span>
+        <span id="textOutputByteBadge" class="type-badge text-green-400">--</span>
+      </div>
+      <div class="flex gap-3 mt-3 flex-wrap">
+        <button id="btnCopyText" class="btn btn-green" onclick="copyReceivedText()"><span data-i18n="btnCopyText">⧉ COPY TEXT</span></button>
+        <button class="btn" onclick="resetReceiver()"><span data-i18n="btnScanNew">↺ SCAN NEW TRANSMISSION</span></button>
+      </div>
+    </div>
+
   </section>
 </main>
 
@@ -547,13 +658,13 @@
 let currentMode = 'tx';
 
 /* ---------- Transmitter state ---------- */
-let txChunks = [];          // array of base64 payload strings (FILE mode) or URL fragments (URL mode)
+let txChunks = [];          // array of base64 payload strings (FILE/TEXT mode) or URL fragments (URL mode)
 let txSessionId = null;
 let txFileName = '';
 let txFileSize = 0;
 let txMimeType = 'video/mp4';
 let txTotalChunks = 0;
-let txActiveIndex = 0;
+let txActiveIndex = 0;       // index of the NEXT chunk to be assigned to grid cell 0 in the current burst
 let txRunning = false;
 let txLoop = false;
 let txCyclesSent = 0;
@@ -562,10 +673,12 @@ let txChunkBytes = 700;
 let txLastFrameTime = 0;
 let txFrameTimestamps = [];
 let txAnimHandle = null;
-let qrCodeInstance = null;
-let txSourceMode = 'file';   // 'file' | 'url'
-let txPayloadType = 'FILE';  // 'FILE' | 'URL'
+let qrCellInstances = [null, null, null, null, null, null]; // one QRCode.js instance per grid cell (up to 6)
+let txSourceMode = 'file';   // 'file' | 'url' | 'text'
+let txPayloadType = 'FILE';  // 'FILE' | 'URL' | 'TEXT'
 let txUrlValue = '';
+let txTextValue = '';
+let txGridSize = 1;          // 1 | 2 | 4 | 6 — number of QR codes flashing concurrently
 
 /* ---------- Receiver state ---------- */
 let rxStream = null;
@@ -662,7 +775,7 @@ en:{
   hudElapsedLabel:'Elapsed', hudChunksLabel:'Chunks', hudSessionLabel:'Session', hudChecksumFailLabel:'Checksum Fails',
   progressLabel:'PROGRESS', liveLogLabel:'Live Log', reconstructionCompleteTitle:'✔ RECONSTRUCTION COMPLETE — PLAYBACK',
   btnDownloadFile:'⬇ DOWNLOAD FILE', btnScanNew:'↺ SCAN NEW TRANSMISSION', linkReceivedTitle:'✔ LINK RECEIVED',
-  btnOpenLink:'↗ OPEN LINK', footerText:'100% OFFLINE // NO NETWORK REQUIRED // OPTICAL DATA TRANSFER PROTOCOL v1.0'
+  btnOpenLink:'↗ OPEN LINK', tabRawText:'RAW TEXT', noTextLoaded:'NO TEXT ENTERED. Type a message above — UTF-8 byte-safe encoding, Cyrillic and other scripts fully supported.', byteLengthLabel:'UTF-8 BYTE LENGTH:', gridLayoutTitle:'02 // GRID LAYOUT / МАКЕТ', hudGridCellsLabel:'Active Grid Cells', textReceivedTitle:'✔ SECURE TEXT RECEIVED', btnCopyText:'⧉ COPY TEXT', footerText:'100% OFFLINE // NO NETWORK REQUIRED // OPTICAL DATA TRANSFER PROTOCOL v1.0'
 },
 ru:{
   headerSubtitle:'// ОПТИЧЕСКАЯ ПЕРЕДАЧА БЕЗ СЕТИ', modeTx:'▲ РЕЖИМ: ПЕРЕДАТЧИК', modeRx:'▼ РЕЖИМ: ПРИЁМНИК',
@@ -685,7 +798,7 @@ ru:{
   hudElapsedLabel:'Прошло времени', hudChunksLabel:'Фрагменты', hudSessionLabel:'Сессия', hudChecksumFailLabel:'Ошибок контр. суммы',
   progressLabel:'ПРОГРЕСС', liveLogLabel:'Журнал событий', reconstructionCompleteTitle:'✔ СБОРКА ЗАВЕРШЕНА — ВОСПРОИЗВЕДЕНИЕ',
   btnDownloadFile:'⬇ СКАЧАТЬ ФАЙЛ', btnScanNew:'↺ СКАНИРОВАТЬ НОВУЮ ПЕРЕДАЧУ', linkReceivedTitle:'✔ ССЫЛКА ПОЛУЧЕНА',
-  btnOpenLink:'↗ ОТКРЫТЬ ССЫЛКУ', footerText:'100% ОФЛАЙН // СЕТЬ НЕ ТРЕБУЕТСЯ // ПРОТОКОЛ ОПТИЧЕСКОЙ ПЕРЕДАЧИ v1.0'
+  btnOpenLink:'↗ ОТКРЫТЬ ССЫЛКУ', tabRawText:'ТЕКСТ', noTextLoaded:'ТЕКСТ НЕ ВВЕДЁН. Введите сообщение выше — безопасная кодировка UTF-8, кириллица и другие письменности поддерживаются полностью.', byteLengthLabel:'ДЛИНА В БАЙТАХ (UTF-8):', gridLayoutTitle:'02 // МАКЕТ СЕТКИ / GRID LAYOUT', hudGridCellsLabel:'Активных ячеек сетки', textReceivedTitle:'✔ ЗАЩИЩЁННЫЙ ТЕКСТ ПОЛУЧЕН', btnCopyText:'⧉ КОПИРОВАТЬ ТЕКСТ', footerText:'100% ОФЛАЙН // СЕТЬ НЕ ТРЕБУЕТСЯ // ПРОТОКОЛ ОПТИЧЕСКОЙ ПЕРЕДАЧИ v1.0'
 },
 de:{
   headerSubtitle:'// OPTISCHE AIR-GAP-ÜBERTRAGUNG', modeTx:'▲ MODUS: SENDER', modeRx:'▼ MODUS: EMPFÄNGER',
@@ -708,7 +821,7 @@ de:{
   hudElapsedLabel:'Verstrichen', hudChunksLabel:'Pakete', hudSessionLabel:'Sitzung', hudChecksumFailLabel:'Prüfsummenfehler',
   progressLabel:'FORTSCHRITT', liveLogLabel:'Live-Protokoll', reconstructionCompleteTitle:'✔ REKONSTRUKTION ABGESCHLOSSEN — WIEDERGABE',
   btnDownloadFile:'⬇ DATEI HERUNTERLADEN', btnScanNew:'↺ NEUE ÜBERTRAGUNG SCANNEN', linkReceivedTitle:'✔ LINK EMPFANGEN',
-  btnOpenLink:'↗ LINK ÖFFNEN', footerText:'100% OFFLINE // KEIN NETZWERK ERFORDERLICH // OPTISCHES DATENÜBERTRAGUNGSPROTOKOLL v1.0'
+  btnOpenLink:'↗ LINK ÖFFNEN', tabRawText:'TEXT', noTextLoaded:'KEIN TEXT EINGEGEBEN. Geben Sie oben eine Nachricht ein — UTF-8-sichere Kodierung, Kyrillisch und andere Schriften werden vollständig unterstützt.', byteLengthLabel:'UTF-8-BYTELÄNGE:', gridLayoutTitle:'02 // RASTERLAYOUT', hudGridCellsLabel:'Aktive Rasterzellen', textReceivedTitle:'✔ SICHERER TEXT EMPFANGEN', btnCopyText:'⧉ TEXT KOPIEREN', footerText:'100% OFFLINE // KEIN NETZWERK ERFORDERLICH // OPTISCHES DATENÜBERTRAGUNGSPROTOKOLL v1.0'
 },
 fr:{
   headerSubtitle:'// TRANSFERT OPTIQUE AIR-GAP', modeTx:'▲ MODE : ÉMETTEUR', modeRx:'▼ MODE : RÉCEPTEUR',
@@ -731,7 +844,7 @@ fr:{
   hudElapsedLabel:'Temps écoulé', hudChunksLabel:'Fragments', hudSessionLabel:'Session', hudChecksumFailLabel:'Échecs de somme',
   progressLabel:'PROGRESSION', liveLogLabel:'Journal en direct', reconstructionCompleteTitle:'✔ RECONSTRUCTION TERMINÉE — LECTURE',
   btnDownloadFile:'⬇ TÉLÉCHARGER LE FICHIER', btnScanNew:'↺ SCANNER UNE NOUVELLE TRANSMISSION', linkReceivedTitle:'✔ LIEN REÇU',
-  btnOpenLink:'↗ OUVRIR LE LIEN', footerText:'100% HORS LIGNE // AUCUN RÉSEAU REQUIS // PROTOCOLE DE TRANSFERT OPTIQUE v1.0'
+  btnOpenLink:'↗ OUVRIR LE LIEN', tabRawText:'TEXTE BRUT', noTextLoaded:'AUCUN TEXTE SAISI. Tapez un message ci-dessus — encodage UTF-8 sûr, cyrillique et autres écritures pleinement pris en charge.', byteLengthLabel:'LONGUEUR EN OCTETS UTF-8 :', gridLayoutTitle:'02 // DISPOSITION DE LA GRILLE', hudGridCellsLabel:'Cellules de grille actives', textReceivedTitle:'✔ TEXTE SÉCURISÉ REÇU', btnCopyText:'⧉ COPIER LE TEXTE', footerText:'100% HORS LIGNE // AUCUN RÉSEAU REQUIS // PROTOCOLE DE TRANSFERT OPTIQUE v1.0'
 },
 es:{
   headerSubtitle:'// TRANSFERENCIA ÓPTICA SIN RED', modeTx:'▲ MODO: TRANSMISOR', modeRx:'▼ MODO: RECEPTOR',
@@ -754,7 +867,7 @@ es:{
   hudElapsedLabel:'Tiempo transcurrido', hudChunksLabel:'Fragmentos', hudSessionLabel:'Sesión', hudChecksumFailLabel:'Fallos de checksum',
   progressLabel:'PROGRESO', liveLogLabel:'Registro en vivo', reconstructionCompleteTitle:'✔ RECONSTRUCCIÓN COMPLETA — REPRODUCCIÓN',
   btnDownloadFile:'⬇ DESCARGAR ARCHIVO', btnScanNew:'↺ ESCANEAR NUEVA TRANSMISIÓN', linkReceivedTitle:'✔ ENLACE RECIBIDO',
-  btnOpenLink:'↗ ABRIR ENLACE', footerText:'100% SIN CONEXIÓN // NO REQUIERE RED // PROTOCOLO DE TRANSFERENCIA ÓPTICA v1.0'
+  btnOpenLink:'↗ ABRIR ENLACE', tabRawText:'TEXTO', noTextLoaded:'NINGÚN TEXTO INGRESADO. Escriba un mensaje arriba — codificación UTF-8 segura, cirílico y otras escrituras totalmente compatibles.', byteLengthLabel:'LONGITUD EN BYTES UTF-8:', gridLayoutTitle:'02 // DISEÑO DE CUADRÍCULA', hudGridCellsLabel:'Celdas de cuadrícula activas', textReceivedTitle:'✔ TEXTO SEGURO RECIBIDO', btnCopyText:'⧉ COPIAR TEXTO', footerText:'100% SIN CONEXIÓN // NO REQUIERE RED // PROTOCOLO DE TRANSFERENCIA ÓPTICA v1.0'
 },
 zh:{
   headerSubtitle:'// 光学隔空数据传输', modeTx:'▲ 模式：发射端', modeRx:'▼ 模式：接收端',
@@ -777,7 +890,7 @@ zh:{
   hudElapsedLabel:'已用时间', hudChunksLabel:'分块进度', hudSessionLabel:'会话', hudChecksumFailLabel:'校验失败次数',
   progressLabel:'进度', liveLogLabel:'实时日志', reconstructionCompleteTitle:'✔ 重建完成 — 正在播放',
   btnDownloadFile:'⬇ 下载文件', btnScanNew:'↺ 扫描新传输', linkReceivedTitle:'✔ 已接收链接',
-  btnOpenLink:'↗ 打开链接', footerText:'100% 离线 // 无需网络 // 光学数据传输协议 v1.0'
+  btnOpenLink:'↗ 打开链接', tabRawText:'纯文本', noTextLoaded:'未输入文本。请在上方输入消息 — 采用 UTF-8 字节安全编码，完全支持西里尔文等其他文字。', byteLengthLabel:'UTF-8 字节长度：', gridLayoutTitle:'02 // 网格布局', hudGridCellsLabel:'活动网格数', textReceivedTitle:'✔ 已接收安全文本', btnCopyText:'⧉ 复制文本', footerText:'100% 离线 // 无需网络 // 光学数据传输协议 v1.0'
 },
 ja:{
   headerSubtitle:'// 光学的エアギャップ転送', modeTx:'▲ モード：送信機', modeRx:'▼ モード：受信機',
@@ -800,7 +913,7 @@ ja:{
   hudElapsedLabel:'経過時間', hudChunksLabel:'チャンク', hudSessionLabel:'セッション', hudChecksumFailLabel:'チェックサム失敗',
   progressLabel:'進捗', liveLogLabel:'ライブログ', reconstructionCompleteTitle:'✔ 再構築完了 — 再生中',
   btnDownloadFile:'⬇ ファイルをダウンロード', btnScanNew:'↺ 新規スキャン', linkReceivedTitle:'✔ リンク受信完了',
-  btnOpenLink:'↗ リンクを開く', footerText:'100% オフライン // ネットワーク不要 // 光学データ転送プロトコル v1.0'
+  btnOpenLink:'↗ リンクを開く', tabRawText:'テキスト', noTextLoaded:'テキストが入力されていません。上部にメッセージを入力してください — UTF-8バイトセーフ符号化により、キリル文字など他の文字体系も完全にサポートされます。', byteLengthLabel:'UTF-8バイト長：', gridLayoutTitle:'02 // グリッドレイアウト', hudGridCellsLabel:'アクティブなグリッドセル数', textReceivedTitle:'✔ セキュアテキスト受信完了', btnCopyText:'⧉ テキストをコピー', footerText:'100% オフライン // ネットワーク不要 // 光学データ転送プロトコル v1.0'
 },
 ko:{
   headerSubtitle:'// 광학 에어갭 전송', modeTx:'▲ 모드: 송신기', modeRx:'▼ 모드: 수신기',
@@ -823,7 +936,7 @@ ko:{
   hudElapsedLabel:'경과 시간', hudChunksLabel:'청크', hudSessionLabel:'세션', hudChecksumFailLabel:'체크섬 실패',
   progressLabel:'진행률', liveLogLabel:'실시간 로그', reconstructionCompleteTitle:'✔ 재구성 완료 — 재생 중',
   btnDownloadFile:'⬇ 파일 다운로드', btnScanNew:'↺ 새 전송 스캔', linkReceivedTitle:'✔ 링크 수신됨',
-  btnOpenLink:'↗ 링크 열기', footerText:'100% 오프라인 // 네트워크 불필요 // 광학 데이터 전송 프로토콜 v1.0'
+  btnOpenLink:'↗ 링크 열기', tabRawText:'텍스트', noTextLoaded:'텍스트가 입력되지 않았습니다. 위에 메시지를 입력하세요 — UTF-8 바이트 안전 인코딩으로 키릴 문자 등 다른 문자 체계도 완전히 지원됩니다.', byteLengthLabel:'UTF-8 바이트 길이:', gridLayoutTitle:'02 // 그리드 레이아웃', hudGridCellsLabel:'활성 그리드 셀', textReceivedTitle:'✔ 보안 텍스트 수신됨', btnCopyText:'⧉ 텍스트 복사', footerText:'100% 오프라인 // 네트워크 불필요 // 광학 데이터 전송 프로토콜 v1.0'
 },
 pt:{
   headerSubtitle:'// TRANSFERÊNCIA ÓPTICA SEM REDE', modeTx:'▲ MODO: TRANSMISSOR', modeRx:'▼ MODO: RECEPTOR',
@@ -846,7 +959,7 @@ pt:{
   hudElapsedLabel:'Tempo decorrido', hudChunksLabel:'Fragmentos', hudSessionLabel:'Sessão', hudChecksumFailLabel:'Falhas de checksum',
   progressLabel:'PROGRESSO', liveLogLabel:'Log ao vivo', reconstructionCompleteTitle:'✔ RECONSTRUÇÃO COMPLETA — REPRODUÇÃO',
   btnDownloadFile:'⬇ BAIXAR ARQUIVO', btnScanNew:'↺ ESCANEAR NOVA TRANSMISSÃO', linkReceivedTitle:'✔ LINK RECEBIDO',
-  btnOpenLink:'↗ ABRIR LINK', footerText:'100% OFFLINE // SEM NECESSIDADE DE REDE // PROTOCOLO DE TRANSFERÊNCIA ÓPTICA v1.0'
+  btnOpenLink:'↗ ABRIR LINK', tabRawText:'TEXTO BRUTO', noTextLoaded:'NENHUM TEXTO INSERIDO. Digite uma mensagem acima — codificação UTF-8 segura, cirílico e outras escritas totalmente suportadas.', byteLengthLabel:'COMPRIMENTO EM BYTES UTF-8:', gridLayoutTitle:'02 // DISPOSIÇÃO DA GRADE', hudGridCellsLabel:'Células de grade ativas', textReceivedTitle:'✔ TEXTO SEGURO RECEBIDO', btnCopyText:'⧉ COPIAR TEXTO', footerText:'100% OFFLINE // SEM NECESSIDADE DE REDE // PROTOCOLO DE TRANSFERÊNCIA ÓPTICA v1.0'
 },
 ar:{
   headerSubtitle:'// نقل بصري بدون شبكة', modeTx:'▲ الوضع: جهاز الإرسال', modeRx:'▼ الوضع: جهاز الاستقبال',
@@ -869,7 +982,7 @@ ar:{
   hudElapsedLabel:'الوقت المنقضي', hudChunksLabel:'الأجزاء', hudSessionLabel:'الجلسة', hudChecksumFailLabel:'أخطاء التحقق',
   progressLabel:'التقدم', liveLogLabel:'السجل المباشر', reconstructionCompleteTitle:'✔ اكتملت إعادة البناء — قيد التشغيل',
   btnDownloadFile:'⬇ تنزيل الملف', btnScanNew:'↺ مسح إرسال جديد', linkReceivedTitle:'✔ تم استلام الرابط',
-  btnOpenLink:'↗ فتح الرابط', footerText:'100% دون اتصال // لا حاجة لشبكة // بروتوكول النقل البصري v1.0'
+  btnOpenLink:'↗ فتح الرابط', tabRawText:'نص خام', noTextLoaded:'لم يتم إدخال نص. اكتب رسالة أعلاه — ترميز UTF-8 آمن، يدعم السيريلية والنصوص الأخرى بالكامل.', byteLengthLabel:'طول البايت UTF-8:', gridLayoutTitle:'02 // تخطيط الشبكة', hudGridCellsLabel:'خلايا الشبكة النشطة', textReceivedTitle:'✔ تم استلام نص آمن', btnCopyText:'⧉ نسخ النص', footerText:'100% دون اتصال // لا حاجة لشبكة // بروتوكول النقل البصري v1.0'
 }
 };
 
@@ -1015,25 +1128,27 @@ $('fileInput').addEventListener('change', async (e)=>{
 });
 
 /* =====================================================================
-   SOURCE MODE SWITCHING (Local File vs Video URL)
+   SOURCE MODE SWITCHING (Local File / Video URL / Raw Text)
 ===================================================================== */
 function setSourceMode(mode){
   txSourceMode = mode;
+
+  $('tabSourceFile').classList.toggle('active', mode === 'file');
+  $('tabSourceUrl').classList.toggle('active', mode === 'url');
+  $('tabSourceText').classList.toggle('active', mode === 'text');
+  $('sourcePanelFile').classList.toggle('hidden', mode !== 'file');
+  $('sourcePanelUrl').classList.toggle('hidden', mode !== 'url');
+  $('sourcePanelText').classList.toggle('hidden', mode !== 'text');
+
+  const wantType = mode === 'file' ? 'FILE' : (mode === 'url' ? 'URL' : 'TEXT');
+  if(txPayloadType !== wantType){ resetTxPayloadState(); }
+
   if(mode === 'file'){
-    $('tabSourceFile').classList.add('active');
-    $('tabSourceUrl').classList.remove('active');
-    $('sourcePanelFile').classList.remove('hidden');
-    $('sourcePanelUrl').classList.add('hidden');
-    // Re-evaluate readiness based on whatever was already loaded as a file
     $('btnStartTx').disabled = (txTotalChunks === 0 || txPayloadType !== 'FILE');
-    if(txPayloadType !== 'FILE'){ resetTxPayloadState(); }
-  } else {
-    $('tabSourceFile').classList.remove('active');
-    $('tabSourceUrl').classList.add('active');
-    $('sourcePanelFile').classList.add('hidden');
-    $('sourcePanelUrl').classList.remove('hidden');
-    if(txPayloadType !== 'URL'){ resetTxPayloadState(); }
+  } else if(mode === 'url'){
     $('btnStartTx').disabled = (txUrlValue.trim().length === 0);
+  } else {
+    $('btnStartTx').disabled = (txTextValue.length === 0);
   }
 }
 
@@ -1048,6 +1163,36 @@ function resetTxPayloadState(){
   $('hudActiveChunk').textContent = '--';
   setTxStatus('statusIdle', 'text-neutral-500');
 }
+
+/* =====================================================================
+   GRID LAYOUT SELECTION (1 / 2 / 4 / 6 simultaneous QR codes)
+===================================================================== */
+function setGridLayout(size){
+  txGridSize = size;
+  const stage = $('qrGridStage');
+  stage.classList.remove('layout-1','layout-2','layout-4','layout-6');
+  stage.classList.add('layout-'+size);
+
+  ['gridOpt1','gridOpt2','gridOpt4','gridOpt6'].forEach(id=>{
+    $(id).classList.remove('active');
+  });
+  $('gridOpt'+size).classList.add('active');
+
+  $('hudGridCells').textContent = size;
+
+  // Grid size changed while idle or mid-broadcast: clear any stale QR
+  // cell instances beyond the new size, and reset the active index so
+  // the next burst starts cleanly aligned to cell 0 rather than mid-cycle.
+  for(let i=size; i<6; i++){
+    if(qrCellInstances[i]){
+      $('qrCell'+i).innerHTML = '';
+      qrCellInstances[i] = null;
+    }
+  }
+  txActiveIndex = 0;
+}
+
+
 
 /* Very small, dependency-free URL classifier. This only needs to steer
    the receiver toward "embed as stream" vs "treat as direct media file" —
@@ -1128,6 +1273,68 @@ function handleUrlInput(){
   $('btnStartTx').disabled = false;
 }
 
+/* =====================================================================
+   RAW TEXT MODE — UTF-8 byte-safe encode/decode
+   Critical detail: we never call btoa() directly on the raw JS string.
+   btoa() operates on UTF-16 code units and throws (or mangles) on any
+   character outside Latin1 — which includes every Cyrillic character.
+   TextEncoder.encode() first converts the string to its correct UTF-8
+   byte sequence, and THAT byte sequence is what gets base64-encoded.
+   The receiver mirrors this exactly in reverse with TextDecoder, so
+   Cyrillic, CJK, emoji, and any other UTF-8 text survives the round
+   trip with zero corruption.
+===================================================================== */
+function handleTextInput(){
+  const raw = $('textInput').value;
+  txTextValue = raw;
+  const badgeWrap = $('textByteBadgeWrap');
+  const badge = $('textByteBadge');
+  const infoLine = $('textInfoLine');
+
+  if(raw.length === 0){
+    badgeWrap.classList.add('hidden');
+    infoLine.classList.remove('hidden');
+    $('btnStartTx').disabled = true;
+    return;
+  }
+
+  const utf8Bytes = new TextEncoder().encode(raw); // correct UTF-8 byte array
+  badge.textContent = utf8Bytes.length + ' bytes';
+  badgeWrap.classList.remove('hidden');
+  infoLine.classList.add('hidden');
+
+  // Base64-encode the UTF-8 byte array (not the raw string) — this is
+  // the same safe path uint8ToBase64() already uses for binary files,
+  // so text mode reuses it rather than duplicating the byte-chunking logic.
+  const b64Full = uint8ToBase64(utf8Bytes);
+
+  txChunks = [];
+  const sliceSize = txChunkBytes;
+  for(let i=0; i<b64Full.length; i+=sliceSize){
+    txChunks.push(b64Full.substring(i, i+sliceSize));
+  }
+  if(txChunks.length === 0) txChunks = [''];
+
+  txPayloadType = 'TEXT';
+  txMimeType = 'text/plain';
+  txSessionId = genSessionId();
+  txTotalChunks = txChunks.length;
+  txActiveIndex = 0;
+  txCyclesSent = 0;
+  const preview = raw.length > 40 ? raw.substring(0,37)+'...' : raw;
+  txFileName = preview;
+  txFileSize = utf8Bytes.length;
+
+  $('hudFilename').textContent = txFileName;
+  $('hudTotalSize').textContent = fmtBytes(utf8Bytes.length);
+  $('hudTotalChunks').textContent = txTotalChunks;
+  $('hudSessionId').textContent = txSessionId;
+  $('hudActiveChunk').textContent = '0 / '+txTotalChunks;
+  setTxStatus('statusReady', 'glow-amber');
+
+  $('btnStartTx').disabled = false;
+}
+
 function uint8ToBase64(bytes){
   let binary = '';
   const chunkSize = 0x8000;
@@ -1140,37 +1347,46 @@ function uint8ToBase64(bytes){
 function buildFramePayload(index){
   const payload = txChunks[index];
   // Header now carries an explicit PAYLOAD TYPE field so the receiver can
-  // branch between "reassemble binary file" and "reassemble a URL string
-  // and open a stream/embed" without guessing from content shape.
+  // branch between "reassemble binary file", "reassemble a URL string and
+  // open a stream/embed", or "reassemble UTF-8 text" without guessing
+  // from content shape.
   const header = `${txSessionId}|${txTotalChunks}|${index}|${txPayloadType}|${txMimeType}`;
   const cs = checksumStr(header+'|'+payload);
   return `${header}|${cs}|${payload}`;
 }
 
-function renderQrFrame(index){
-  const data = buildFramePayload(index);
-  const stage = $('qrStage');
+/* Renders one chunk into one specific grid cell (0-5). Each cell keeps
+   its own independent QRCode.js instance and its own tracked EC level,
+   since the H->L fallback (see below) must be decided per-cell, not
+   globally — different cells can be showing different chunk indices
+   whose base64 content happens to compress to different lengths. */
+function renderQrCell(cellIndex, chunkIndex){
+  if(chunkIndex >= txTotalChunks) return; // nothing to show in this cell this burst
+
+  const data = buildFramePayload(chunkIndex);
+  const container = $('qrCell'+cellIndex);
 
   // Adaptive error-correction density:
   //  - URL mode: payload is tiny (chunked at ~120 bytes), so we use LOW
   //    correction (L) to keep the QR at its lowest possible module
   //    density — fewer modules means faster camera lock even during a
   //    sub-1-second burst of 1-3 frames.
-  //  - FILE mode: payload chunks are large (hundreds of bytes of base64),
-  //    so we use HIGH correction (H) as requested — H tolerates far more
+  //  - FILE / TEXT mode: payload chunks are large (hundreds of bytes of
+  //    base64), so we use HIGH correction (H) — H tolerates far more
   //    camera motion blur / partial occlusion / lighting glare per frame,
   //    which matters a lot over a long multi-minute flashing sequence.
   //    H costs ~7x more parity data than L for the same QR version, which
   //    eats into usable payload capacity — so if a chunk is too large to
-  //    fit at H, we transparently fall back to L for this transmission
-  //    instead of throwing "payload too large" for a limit the user
-  //    didn't actually hit at L.
+  //    fit at H, we transparently fall back to L for this cell instead of
+  //    throwing "payload too large" for a limit the user didn't actually
+  //    hit at L.
   const desiredLevel = (txPayloadType === 'URL') ? QRCode.CorrectLevel.L : QRCode.CorrectLevel.H;
 
   try{
-    if(!qrCodeInstance || qrCodeInstance._qrlinkLevel !== desiredLevel){
-      stage.innerHTML = '';
-      qrCodeInstance = new QRCode(stage, {
+    const existing = qrCellInstances[cellIndex];
+    if(!existing || existing._qrlinkLevel !== desiredLevel){
+      container.innerHTML = '';
+      const inst = new QRCode(container, {
         text: data,
         width: 480,
         height: 480,
@@ -1178,25 +1394,28 @@ function renderQrFrame(index){
         colorLight: '#ffffff',
         correctLevel: desiredLevel
       });
-      qrCodeInstance._qrlinkLevel = desiredLevel;
+      inst._qrlinkLevel = desiredLevel;
+      qrCellInstances[cellIndex] = inst;
     } else {
-      qrCodeInstance.clear();
-      qrCodeInstance.makeCode(data);
+      existing.clear();
+      existing.makeCode(data);
     }
   }catch(err){
     if(desiredLevel === QRCode.CorrectLevel.H){
-      // Chunk didn't fit at H capacity — retry this exact frame at L
-      // instead of failing the whole broadcast. Rebuild the instance so
-      // subsequent frames also use L until a fresh file/session resets it.
+      // Chunk didn't fit at H capacity in this cell — retry this exact
+      // frame at L instead of failing the whole broadcast. Rebuild just
+      // this cell's instance so subsequent frames in this cell also use
+      // L until a fresh file/session resets everything.
       try{
-        stage.innerHTML = '';
-        qrCodeInstance = new QRCode(stage, {
+        container.innerHTML = '';
+        const inst = new QRCode(container, {
           text: data, width: 480, height: 480,
           colorDark: '#000000', colorLight: '#ffffff',
           correctLevel: QRCode.CorrectLevel.L
         });
-        qrCodeInstance._qrlinkLevel = QRCode.CorrectLevel.L;
-        console.warn('QR-LINK: chunk too large at H correction — falling back to L for this transmission.');
+        inst._qrlinkLevel = QRCode.CorrectLevel.L;
+        qrCellInstances[cellIndex] = inst;
+        console.warn('QR-LINK: chunk too large at H correction in cell '+cellIndex+' — falling back to L.');
         return;
       }catch(err2){
         // Falls through to the shared failure handling below.
@@ -1213,6 +1432,24 @@ function renderQrFrame(index){
   }
 }
 
+/* Renders one full burst: fills every ACTIVE grid cell (per txGridSize)
+   with the next txGridSize chunks starting at txActiveIndex, all at
+   once, so a 4-cell grid pushes 4x the data per flash interval versus
+   a single QR code. Cells beyond the total remaining chunks in the
+   final partial burst of a cycle are simply left showing their last
+   frame (harmless — the receiver has already accepted those chunks and
+   silently discards the repeat). */
+function renderQrBurst(){
+  for(let cell=0; cell<txGridSize; cell++){
+    const chunkIdx = txActiveIndex + cell;
+    if(chunkIdx < txTotalChunks){
+      renderQrCell(cell, chunkIdx);
+    }
+  }
+}
+
+
+
 function startTransmission(){
   if(txTotalChunks === 0) return;
   txRunning = true;
@@ -1224,9 +1461,7 @@ function startTransmission(){
   setTxStatus('statusBroadcasting', 'glow-green');
   txLastFrameTime = performance.now();
   txAnimHandle = requestAnimationFrame(txLoopStep);
-}
-
-function stopTransmission(){
+}function stopTransmission(){
   txRunning = false;
   if(txAnimHandle) cancelAnimationFrame(txAnimHandle);
   $('btnStartTx').disabled = txTotalChunks === 0;
@@ -1248,16 +1483,23 @@ function txLoopStep(now){
   if(elapsed >= interval){
     txLastFrameTime = now - (elapsed % interval);
 
-    renderQrFrame(txActiveIndex);
+    // Flash a whole burst across every active grid cell concurrently —
+    // this is what multiplies throughput by txGridSize versus a single
+    // QR code, since up to 6 chunks are shown (and can be scanned) in
+    // exactly the same time slot a single-cell layout would show 1.
+    renderQrBurst();
 
-    // FPS measurement (rolling window)
+    // FPS measurement (rolling window) — this tracks BURST rate, i.e.
+    // how many times per second the whole grid refreshes. Effective
+    // chunk throughput is this value multiplied by the active cell count.
     txFrameTimestamps.push(now);
     txFrameTimestamps = txFrameTimestamps.filter(t => now - t < 1000);
     $('hudTxFps').textContent = txFrameTimestamps.length.toFixed(1);
 
-    $('hudActiveChunk').textContent = txActiveIndex + ' / ' + txTotalChunks;
+    const displayEnd = Math.min(txActiveIndex + txGridSize, txTotalChunks);
+    $('hudActiveChunk').textContent = txActiveIndex + '-' + (displayEnd-1) + ' / ' + txTotalChunks;
 
-    txActiveIndex++;
+    txActiveIndex += txGridSize;
     if(txActiveIndex >= txTotalChunks){
       txActiveIndex = 0;
       txCyclesSent++;
@@ -1322,6 +1564,7 @@ function stopCamera(){
     rxStream.getTracks().forEach(t=>t.stop());
     rxStream = null;
   }
+  clearTargetingMesh();
   $('camIdleMsg').style.display = 'flex';
   $('btnStartCam').disabled = false;
   $('btnStopCam').disabled = true;
@@ -1357,6 +1600,10 @@ function resetReceiver(){
   $('urlPlayerPanel').classList.add('hidden');
   $('urlEmbedWrap').innerHTML = '';
   $('urlDirectLine').textContent = '';
+  $('textPlayerPanel').classList.add('hidden');
+  $('textOutputArea').value = '';
+  $('textOutputByteBadge').textContent = '--';
+  lastReceivedText = '';
   const dl = $('downloadLink');
   if(dl.href && dl.href.startsWith('blob:')) URL.revokeObjectURL(dl.href);
   logLine('Buffer reset. Ready for new acquisition.');
@@ -1396,6 +1643,131 @@ const hiddenCanvas = () => $('hiddenDecodeCanvas');
    we get a predictable ~20 ticks/sec regardless of render load, with a
    real gap between each decode attempt. */
 const RX_SCAN_INTERVAL_MS = 50;
+
+/* =====================================================================
+   CAMERA TARGETING MESH OVERLAY
+   Draws a glowing neon-green bounding box + crosshair directly over the
+   detected QR's four corner points, on the VISIBLE overlay canvas (not
+   the hidden 300x300 decode buffer). jsQR's `location` object gives us
+   corner coordinates in decode-buffer pixel space; since the decode
+   buffer is a center-cropped, uniformly-scaled square taken from the
+   source video, mapping a decode-space point back to overlay-space is
+   a single affine transform: undo the DECODE_SIZE/srcSize scale, add
+   back the crop offset, then scale from video pixel space to the
+   overlay canvas's own CSS pixel space (which mirrors #camPreview via
+   object-fit:cover, so this mesh is drawn in true visual alignment with
+   what the user is actually pointing their camera at).
+===================================================================== */
+function overlayCanvas(){ return $('camCanvasOverlay'); }
+
+function syncOverlayCanvasSize(){
+  const video = $('camPreview');
+  const overlay = overlayCanvas();
+  const rect = video.getBoundingClientRect();
+  const w = Math.round(rect.width);
+  const h = Math.round(rect.height);
+  if(overlay.width !== w) overlay.width = w;
+  if(overlay.height !== h) overlay.height = h;
+}
+
+function clearTargetingMesh(){
+  const overlay = overlayCanvas();
+  const ctx = overlay.getContext('2d');
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+}
+
+function drawTargetingMesh(location, decodeSize, srcX, srcY, srcSize, videoW, videoH){
+  if(!location) return;
+  syncOverlayCanvasSize();
+  const overlay = overlayCanvas();
+  const ctx = overlay.getContext('2d');
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+  // #camPreview uses CSS object-fit:cover inside a square #camWrap, so
+  // the visible video is itself a center-crop of the source video scaled
+  // to fill a square — exactly mirroring how we built the decode buffer.
+  // That means decode-space -> overlay-space is: decode -> source-video
+  // pixels -> (since both are the same center-cropped square region)
+  // directly proportional to overlay pixels. We map through source-video
+  // space as the common reference frame.
+  const overlaySize = overlay.width; // overlay is always square (camWrap is aspect-ratio:1/1)
+  const videoDisplaySquare = Math.min(videoW, videoH); // the square region object-fit:cover shows on screen
+
+  function mapPoint(pt){
+    // Step 1: decode-buffer pixels -> source-video pixels (undo the crop+scale)
+    const svX = srcX + (pt.x / decodeSize) * srcSize;
+    const svY = srcY + (pt.y / decodeSize) * srcSize;
+    // Step 2: source-video pixels -> overlay pixels. The displayed video
+    // is a center-crop of the source to a square of side videoDisplaySquare,
+    // then scaled to fill the overlay's square canvas.
+    const cropOffsetX = (videoW - videoDisplaySquare) / 2;
+    const cropOffsetY = (videoH - videoDisplaySquare) / 2;
+    const ox = ((svX - cropOffsetX) / videoDisplaySquare) * overlaySize;
+    const oy = ((svY - cropOffsetY) / videoDisplaySquare) * overlaySize;
+    return { x: ox, y: oy };
+  }
+
+  const tl = mapPoint(location.topLeftCorner);
+  const tr = mapPoint(location.topRightCorner);
+  const br = mapPoint(location.bottomRightCorner);
+  const bl = mapPoint(location.bottomLeftCorner);
+
+  ctx.save();
+  ctx.strokeStyle = '#10b981';
+  ctx.fillStyle = 'rgba(16,185,129,0.10)';
+  ctx.lineWidth = 3;
+  ctx.shadowColor = '#10b981';
+  ctx.shadowBlur = 14;
+
+  // Bounding quad following the actual (possibly rotated/skewed) corners
+  ctx.beginPath();
+  ctx.moveTo(tl.x, tl.y);
+  ctx.lineTo(tr.x, tr.y);
+  ctx.lineTo(br.x, br.y);
+  ctx.lineTo(bl.x, bl.y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Corner brackets — small right-angle ticks at each corner for a
+  // sharper "targeting reticle" look than a plain quad outline
+  const bracketLen = Math.max(10, (Math.hypot(tr.x-tl.x, tr.y-tl.y)) * 0.18);
+  ctx.lineWidth = 4;
+  drawCornerBracket(ctx, tl, tr, bl, bracketLen);
+  drawCornerBracket(ctx, tr, tl, br, bracketLen);
+  drawCornerBracket(ctx, br, bl, tr, bracketLen);
+  drawCornerBracket(ctx, bl, br, tl, bracketLen);
+
+  // Center crosshair
+  const cx = (tl.x + tr.x + br.x + bl.x) / 4;
+  const cy = (tl.y + tr.y + br.y + bl.y) / 4;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx - 10, cy); ctx.lineTo(cx + 10, cy);
+  ctx.moveTo(cx, cy - 10); ctx.lineTo(cx, cy + 10);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/* Draws a small right-angle bracket at corner `p`, with its two arms
+   pointing toward `towardA` and `towardB` (the two adjacent corners),
+   each arm of length `len`. This is what gives the targeting reticle
+   its "camera focus brackets" look instead of a plain rectangle. */
+function drawCornerBracket(ctx, p, towardA, towardB, len){
+  function unitVec(from, to){
+    const dx = to.x - from.x, dy = to.y - from.y;
+    const mag = Math.hypot(dx, dy) || 1;
+    return { x: dx/mag, y: dy/mag };
+  }
+  const vA = unitVec(p, towardA);
+  const vB = unitVec(p, towardB);
+  ctx.beginPath();
+  ctx.moveTo(p.x + vA.x*len, p.y + vA.y*len);
+  ctx.lineTo(p.x, p.y);
+  ctx.lineTo(p.x + vB.x*len, p.y + vB.y*len);
+  ctx.stroke();
+}
 
 function rxScanStep(){
   if(!rxScanning) return;
@@ -1473,8 +1845,10 @@ function rxScanStep(){
       handleDecodedFrame(code.data);
       setLockState(true);
       rxLastLockTime = now;
+      drawTargetingMesh(code.location, DECODE_SIZE, srcX, srcY, srcSize, vw, vh);
     } else if(now - rxLastLockTime > 350){
       setLockState(false);
+      clearTargetingMesh();
     }
   } else {
     // Video not ready yet this tick (dimensions still 0, or buffering) —
@@ -1497,7 +1871,8 @@ function handleDecodedFrame(raw){
   const sessionId = firstSplit[0];
   const totalChunks = parseInt(firstSplit[1], 10);
   const index = parseInt(firstSplit[2], 10);
-  const payloadType = firstSplit[3] === 'URL' ? 'URL' : 'FILE';
+  const rawType = firstSplit[3];
+  const payloadType = (rawType === 'URL' || rawType === 'TEXT') ? rawType : 'FILE';
   const mime = firstSplit[4];
   const checksum = firstSplit[5];
   const payload = firstSplit.slice(6).join('|'); // base64/URL text shouldn't contain '|' but be safe
@@ -1576,6 +1951,8 @@ function handleDecodedFrame(raw){
     logLine(`ALL ${rxTotalChunks} CHUNKS ACQUIRED. Reassembling...`);
     if(rxPayloadType === 'URL'){
       finalizeUrl();
+    } else if(rxPayloadType === 'TEXT'){
+      finalizeText();
     } else {
       finalizeVideo();
     }
@@ -1726,6 +2103,58 @@ function finalizeUrl(){
   }
 }
 
+/* Reassembles a received TEXT-type session using the exact reverse of
+   the transmitter's UTF-8-safe encoding: base64-decode to raw bytes,
+   then TextDecoder to turn those bytes back into a correct JS string.
+   This is what guarantees Cyrillic (and any other multi-byte UTF-8
+   text) survives the optical round trip with zero corruption — a plain
+   atob() followed by treating the result as text would misinterpret
+   the UTF-8 byte sequence as Latin1 and produce garbled characters. */
+let lastReceivedText = '';
+function finalizeText(){
+  rxScanning = false;
+  if(rxAnimHandle) clearTimeout(rxAnimHandle);
+  stopCamera();
+
+  try{
+    let fullB64 = '';
+    for(let i=0;i<rxTotalChunks;i++){
+      fullB64 += rxChunksMap.get(i);
+    }
+
+    const binaryStr = atob(fullB64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for(let i=0;i<binaryStr.length;i++){
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+
+    const decodedText = new TextDecoder('utf-8', { fatal:false }).decode(bytes);
+    lastReceivedText = decodedText;
+
+    $('textOutputArea').value = decodedText;
+    $('textOutputByteBadge').textContent = bytes.length + ' bytes';
+    $('textPlayerPanel').classList.remove('hidden');
+    $('textPlayerPanel').scrollIntoView({ behavior:'smooth', block:'start' });
+    logLine('Text reconstructed successfully ('+bytes.length+' UTF-8 bytes).');
+  }catch(err){
+    logLine('TEXT RECONSTRUCTION ERROR: '+err.message, true);
+    alert('Failed to reconstruct text: '+err.message);
+  }
+}
+
+function copyReceivedText(){
+  const area = $('textOutputArea');
+  area.select();
+  area.setSelectionRange(0, 999999);
+  try{
+    navigator.clipboard.writeText(lastReceivedText).catch(()=>{
+      document.execCommand('copy');
+    });
+  }catch(e){
+    try{ document.execCommand('copy'); }catch(e2){ /* clipboard unavailable — text remains selected for manual copy */ }
+  }
+}
+
 function toYouTubeEmbed(url){
   try{
     const u = new URL(url);
@@ -1749,6 +2178,7 @@ function toYouTubeEmbed(url){
 
 /* Init */
 applyLanguage('en');
+setGridLayout(1);
 setMode('tx');
 </script>
 </body>
